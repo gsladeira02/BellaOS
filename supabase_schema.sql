@@ -103,6 +103,19 @@ create table if not exists professional_services (
   primary key (professional_id, service_id)
 );
 
+
+create table if not exists professional_weekly_schedules (
+  id uuid primary key default uuid_generate_v4(),
+  professional_id uuid references professionals(id) on delete cascade not null,
+  day_of_week integer not null check (day_of_week between 0 and 6),
+  active boolean default true,
+  start_time time default '09:00',
+  end_time time default '18:00',
+  break_start time,
+  break_end time,
+  unique (professional_id, day_of_week)
+);
+
 create table if not exists clients (
   id uuid primary key default uuid_generate_v4(),
   salon_id uuid references salons(id) on delete cascade not null,
@@ -247,6 +260,7 @@ alter table services enable row level security;
 alter table service_products enable row level security;
 alter table professionals enable row level security;
 alter table professional_services enable row level security;
+alter table professional_weekly_schedules enable row level security;
 alter table clients enable row level security;
 alter table client_hair_history enable row level security;
 alter table appointments enable row level security;

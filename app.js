@@ -75,6 +75,104 @@
     return `${h}:${m}`;
   }
 
+
+  const WEEK_DAYS = [
+    { value: 0, label: 'Domingo', short: 'Dom' },
+    { value: 1, label: 'Segunda', short: 'Seg' },
+    { value: 2, label: 'Terça', short: 'Ter' },
+    { value: 3, label: 'Quarta', short: 'Qua' },
+    { value: 4, label: 'Quinta', short: 'Qui' },
+    { value: 5, label: 'Sexta', short: 'Sex' },
+    { value: 6, label: 'Sábado', short: 'Sáb' }
+  ];
+
+  function defaultWeeklySchedule(professional = {}) {
+    const workDays = Array.isArray(professional.workDays) ? professional.workDays : [1,2,3,4,5,6];
+    return WEEK_DAYS.reduce((acc, day) => {
+      acc[day.value] = {
+        active: workDays.includes(day.value),
+        start: professional.start || '09:00',
+        end: professional.end || '18:00',
+        breakStart: professional.lunchStart || '12:30',
+        breakEnd: professional.lunchEnd || '13:30'
+      };
+      return acc;
+    }, {});
+  }
+
+  function normalizedWeeklySchedule(professional = {}) {
+    const fallback = defaultWeeklySchedule(professional);
+    const saved = professional.weeklySchedule || professional.schedule || {};
+    return WEEK_DAYS.reduce((acc, day) => {
+      const row = saved[String(day.value)] || saved[day.value] || fallback[day.value];
+      acc[day.value] = {
+        active: Boolean(row?.active),
+        start: row?.start || fallback[day.value].start || '09:00',
+        end: row?.end || fallback[day.value].end || '18:00',
+        breakStart: row?.breakStart ?? row?.lunchStart ?? fallback[day.value].breakStart ?? '',
+        breakEnd: row?.breakEnd ?? row?.lunchEnd ?? fallback[day.value].breakEnd ?? ''
+      };
+      return acc;
+    }, {});
+  }
+
+  function firstActiveSchedule(weeklySchedule) {
+    return WEEK_DAYS.map(d => weeklySchedule[d.value]).find(row => row?.active) || { start: '09:00', end: '18:00', breakStart: '12:30', breakEnd: '13:30' };
+  }
+
+  function scheduleFromForm(data) {
+    return WEEK_DAYS.reduce((acc, day) => {
+      acc[day.value] = {
+        active: data.has(`dayActive_${day.value}`),
+        start: String(data.get(`dayStart_${day.value}`) || '09:00'),
+        end: String(data.get(`dayEnd_${day.value}`) || '18:00'),
+        breakStart: String(data.get(`dayBreakStart_${day.value}`) || ''),
+        breakEnd: String(data.get(`dayBreakEnd_${day.value}`) || '')
+      };
+      return acc;
+    }, {});
+  }
+
+  function validateWeeklySchedule(weeklySchedule) {
+    const activeDays = WEEK_DAYS.filter(day => weeklySchedule[day.value]?.active);
+    if (!activeDays.length) return 'Selecione pelo menos um dia de trabalho.';
+    for (const day of activeDays) {
+      const row = weeklySchedule[day.value];
+      const start = timeToMin(row.start);
+      const end = timeToMin(row.end);
+      if (start >= end) return `Revise o horário de ${day.label}: início precisa ser antes do fim.`;
+      if (row.breakStart && row.breakEnd) {
+        const breakStart = timeToMin(row.breakStart);
+        const breakEnd = timeToMin(row.breakEnd);
+        if (breakStart >= breakEnd) return `Revise o intervalo de ${day.label}.`;
+        if (breakStart < start || breakEnd > end) return `O intervalo de ${day.label} precisa ficar dentro do horário de trabalho.`;
+      }
+    }
+    return '';
+  }
+
+  function scheduleForDate(professional, date) {
+    if (!professional?.active) return null;
+    const day = new Date(date + 'T00:00:00').getDay();
+    const schedule = normalizedWeeklySchedule(professional)[day];
+    return schedule?.active ? schedule : null;
+  }
+
+  function scheduleSummary(professional) {
+    const weekly = normalizedWeeklySchedule(professional);
+    const activeDays = WEEK_DAYS.filter(day => weekly[day.value]?.active);
+    if (!activeDays.length) return 'Sem dias ativos';
+    const labels = activeDays.map(day => day.short).join(', ');
+    const hours = new Set(activeDays.map(day => `${weekly[day.value].start}-${weekly[day.value].end}`));
+    const breaks = new Set(activeDays.map(day => `${weekly[day.value].breakStart || ''}-${weekly[day.value].breakEnd || ''}`));
+    if (hours.size === 1 && breaks.size === 1) {
+      const row = weekly[activeDays[0].value];
+      const interval = row.breakStart && row.breakEnd ? ` · Intervalo ${row.breakStart} às ${row.breakEnd}` : ' · Sem intervalo';
+      return `${labels} · ${row.start} às ${row.end}${interval}`;
+    }
+    return `${labels} · horários por dia configurados`;
+  }
+
   function initials(name) {
     return String(name || 'B').split(' ').filter(Boolean).slice(0, 2).map(p => p[0]).join('').toUpperCase();
   }
@@ -212,6 +310,7 @@
       const required = ['salons','users','services','professionals','clients','appointments','products','financial'];
       if (!required.every(k => Array.isArray(parsed[k]))) return seedDb();
       ['hairHistory','stockMovements','logs','categories'].forEach(k => { if (!Array.isArray(parsed[k])) parsed[k] = []; });
+      parsed.professionals.forEach(p => { if (!p.weeklySchedule) p.weeklySchedule = normalizedWeeklySchedule(p); });
       return parsed;
     } catch (e) {
       return seedDb();
@@ -713,7 +812,7 @@
           <div class="avatar">${initials(p.name)}</div>
           <div class="item-main">
             <div class="item-title">${esc(p.name)} ${p.active ? '<span class="badge success">Ativa</span>' : '<span class="badge danger">Inativa</span>'}</div>
-            <div class="item-meta">${esc(p.specialty)}<br>${esc(p.start)} às ${esc(p.end)} · Comissão padrão ${p.commissionDefault}%<br>${p.services.map(id => services.find(s => s.id === id)?.name).filter(Boolean).slice(0,3).join(', ')}${p.services.length > 3 ? '...' : ''}</div>
+            <div class="item-meta">${esc(p.specialty)}<br>${esc(scheduleSummary(p))} · Comissão padrão ${p.commissionDefault}%<br>${p.services.map(id => services.find(s => s.id === id)?.name).filter(Boolean).slice(0,3).join(', ')}${p.services.length > 3 ? '...' : ''}</div>
             <div class="actions" style="margin-top:10px">
               <button class="btn small secondary" type="button" onclick="Bella.openModal('professional',{professionalId:'${p.id}'})">Editar</button>
               <button class="btn small danger" type="button" onclick="Bella.deleteProfessional('${p.id}')">Excluir</button>
@@ -896,7 +995,7 @@
 
         <div class="card" style="margin-bottom:14px">
           <div class="card-title">Adicionar serviço ao atendimento</div>
-          <div class="card-sub" style="margin-bottom:12px">Escolha os serviços. O BellaOS organiza a ordem automaticamente; maquiagem e penteado ficam no final.</div>
+          <div class="card-sub" style="margin-bottom:12px">Escolha os serviços. O BellaOS testa a melhor sequência de acordo com a agenda de cada profissional; maquiagem e penteado ficam no final.</div>
           <div class="field"><label>Profissional</label><select onchange="Bella.setAppointmentItemDraft('professionalId', this.value)" ${activeProfessionals.length ? '' : 'disabled'}>
             ${activeProfessionals.length ? activeProfessionals.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional ativa</option>`}
           </select><small>Escolha a profissional para ver apenas os serviços que ela realiza.</small></div>
@@ -906,7 +1005,7 @@
           <button class="btn secondary full" type="button" onclick="Bella.addAppointmentItem()" ${(!draft.draftProfessionalId || !draft.draftServiceId || !availableServices.length) ? 'disabled' : ''}>Adicionar serviço</button>
         </div>
 
-        <div class="field"><label>Serviços escolhidos</label><small>Ordem automática do atendimento. Maquiagem e penteado são encaixados no final.</small>
+        <div class="field"><label>Serviços escolhidos</label><small>Ordem automática do atendimento. O sistema ajusta a sequência conforme a disponibilidade das profissionais e deixa maquiagem e penteado no final.</small>
           <div class="list">
             ${draft.items.length ? draft.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'appointment')).join('') : `<div class="empty">Nenhum serviço adicionado ainda.</div>`}
           </div>
@@ -916,7 +1015,7 @@
         <div class="field"><label>Horário de início</label>
           <div class="slots">${slots.length ? slots.map(t => `<button type="button" class="slot ${draft.time === t ? 'active' : ''}" onclick="Bella.setAppointmentDraft('time','${t}')">${t}</button>`).join('') : `<button type="button" class="slot" disabled>Sem horários</button>`}</div>
           <input type="hidden" name="start" value="${esc(draft.time)}" required />
-          <small>${draft.items.length ? 'Você escolhe o horário de início. O sistema define a sequência dos serviços e encaixa cada profissional.' : 'Adicione pelo menos um serviço para ver os horários.'}</small>
+          <small>${draft.items.length ? 'Você escolhe o horário de início. O sistema procura a melhor ordem e encaixa cada serviço no horário da profissional responsável.' : 'Adicione pelo menos um serviço para ver os horários.'}</small>
         </div>
         <div class="summary-box">
           <strong>${draft.items.length ? money(total) : 'Monte o atendimento'}</strong>
@@ -969,13 +1068,26 @@
     const { professionals, services } = salonData(salon.id);
     const p = professionals.find(x => x.id === payload.professionalId);
     const isEdit = Boolean(p);
+    const weekly = normalizedWeeklySchedule(p || {});
+    const scheduleRows = WEEK_DAYS.map(day => {
+      const row = weekly[day.value];
+      return `<div class="week-row">
+        <label class="week-day"><input type="checkbox" name="dayActive_${day.value}" ${row.active ? 'checked' : ''}><span>${day.short}</span></label>
+        <div class="week-times">
+          <div class="field mini"><label>Entrada</label><input name="dayStart_${day.value}" type="time" value="${esc(row.start)}" /></div>
+          <div class="field mini"><label>Saída</label><input name="dayEnd_${day.value}" type="time" value="${esc(row.end)}" /></div>
+          <div class="field mini"><label>Intervalo início</label><input name="dayBreakStart_${day.value}" type="time" value="${esc(row.breakStart || '')}" /></div>
+          <div class="field mini"><label>Intervalo fim</label><input name="dayBreakEnd_${day.value}" type="time" value="${esc(row.breakEnd || '')}" /></div>
+        </div>
+      </div>`;
+    }).join('');
     return `${modalHeader(isEdit ? 'Editar profissional' : 'Nova profissional')}
       <form onsubmit="Bella.saveProfessional(event, '${p?.id || ''}')">
         <div class="field"><label>Nome</label><input name="name" value="${esc(p?.name || '')}" required /></div>
         <div class="field"><label>WhatsApp</label><input name="phone" inputmode="tel" value="${esc(p?.phone || '')}" /></div>
         <div class="field"><label>Especialidade</label><input name="specialty" value="${esc(p?.specialty || '')}" placeholder="Cabelo, unhas, maquiagem..." /></div>
         <div class="field"><label>Serviços realizados</label><div class="service-picker">${services.filter(s=>s.active || p?.services?.includes(s.id)).map(s => `<label class="service-option"><input type="checkbox" name="services" value="${s.id}" ${p?.services?.includes(s.id) ? 'checked' : ''}><div><strong>${esc(s.name)}</strong><div class="card-sub">${money(s.price)} · ${s.duration} min</div></div></label>`).join('')}</div></div>
-        <div class="field-row"><div class="field"><label>Início</label><input name="start" type="time" value="${esc(p?.start || '09:00')}" /></div><div class="field"><label>Fim</label><input name="end" type="time" value="${esc(p?.end || '18:00')}" /></div></div>
+        <div class="field"><label>Horários por dia da semana</label><p class="hint">Ative os dias de atendimento e defina entrada, saída e intervalo de cada dia.</p><div class="week-schedule">${scheduleRows}</div></div>
         <div class="field"><label>Comissão padrão %</label><input name="commissionDefault" type="number" value="${esc(p?.commissionDefault ?? 40)}" /></div>
         <div class="switch-row"><div><span>Profissional ativa</span><small>Profissionais inativas não recebem novos agendamentos online.</small></div><input class="checkbox" name="active" type="checkbox" ${p?.active !== false ? 'checked' : ''}></div>
         <button class="btn brand full" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar profissional'}</button>
@@ -1242,16 +1354,102 @@
     }).join(' · ');
   }
 
+  function permuteItems(list, limit = 720) {
+    if ((list || []).length <= 1) return [list || []];
+    const result = [];
+    const used = new Array(list.length).fill(false);
+    function walk(path) {
+      if (result.length >= limit) return;
+      if (path.length === list.length) {
+        result.push(path.slice());
+        return;
+      }
+      for (let i = 0; i < list.length; i += 1) {
+        if (used[i]) continue;
+        used[i] = true;
+        path.push(list[i]);
+        walk(path);
+        path.pop();
+        used[i] = false;
+        if (result.length >= limit) break;
+      }
+    }
+    walk([]);
+    return result;
+  }
+
+  function candidateServiceOrders(salonId, items) {
+    const { services, categories } = salonData(salonId);
+    const normal = [];
+    const finalStage = [];
+    (items || []).forEach(item => {
+      const service = services.find(s => s.id === item.serviceId);
+      if (isFinalStageService(service, categories)) finalStage.push(item);
+      else normal.push(item);
+    });
+
+    const maxOrders = 720;
+    const normalOrders = permuteItems(normal, maxOrders);
+    const finalLimit = Math.max(1, Math.floor(maxOrders / Math.max(1, normalOrders.length)));
+    const finalOrders = permuteItems(finalStage, finalLimit);
+    const orders = [];
+
+    for (const firstPart of normalOrders) {
+      for (const lastPart of finalOrders) {
+        orders.push([...firstPart, ...lastPart]);
+        if (orders.length >= maxOrders) return orders;
+      }
+    }
+    return orders.length ? orders : [items || []];
+  }
+
+  function buildServicePlanForStart(salonId, items, date, startMin) {
+    const { salon, professionals, services, appointments } = salonData(salonId);
+    const cleaned = sanitizeServiceItems(salonId, items || []);
+    if (!cleaned.length || !date) return null;
+    for (const orderedItems of candidateServiceOrders(salonId, cleaned)) {
+      let cursor = startMin;
+      const segments = [];
+      let ok = true;
+      for (const item of orderedItems) {
+        const service = services.find(s => s.id === item.serviceId);
+        const professional = professionals.find(p => p.id === item.professionalId);
+        const duration = itemDuration(item, services, salon);
+        if (!service || !professional || !duration) {
+          ok = false;
+          break;
+        }
+        const start = cursor;
+        const end = cursor + duration;
+        if (!isProfessionalSegmentAvailable({ salon, professional, date, startMin: start, endMin: end, appointments })) {
+          ok = false;
+          break;
+        }
+        segments.push({ ...item, start: minToTime(start), end: minToTime(end), duration });
+        cursor = end;
+      }
+      if (ok) {
+        return {
+          items: orderedItems,
+          segments,
+          start: minToTime(startMin),
+          end: minToTime(cursor),
+          duration: cursor - startMin
+        };
+      }
+    }
+    return null;
+  }
+
   function isProfessionalSegmentAvailable({ salon, professional, date, startMin, endMin, appointments }) {
-    if (!professional?.active) return false;
-    const day = new Date(date + 'T00:00:00').getDay();
-    if (!(professional.workDays || []).includes(day)) return false;
-    if (startMin < Math.max(timeToMin(salon.openingStart), timeToMin(professional.start))) return false;
-    if (endMin > Math.min(timeToMin(salon.openingEnd), timeToMin(professional.end))) return false;
-    if (professional.lunchStart && professional.lunchEnd) {
-      const lunchStart = timeToMin(professional.lunchStart);
-      const lunchEnd = timeToMin(professional.lunchEnd);
-      if (startMin < lunchEnd && endMin > lunchStart) return false;
+    const schedule = scheduleForDate(professional, date);
+    if (!schedule) return false;
+    if (startMin < Math.max(timeToMin(salon.openingStart), timeToMin(schedule.start))) return false;
+    if (endMin > Math.min(timeToMin(salon.openingEnd), timeToMin(schedule.end))) return false;
+    if (schedule.breakStart && schedule.breakEnd) {
+      const breakStart = timeToMin(schedule.breakStart);
+      const breakEnd = timeToMin(schedule.breakEnd);
+      if (startMin < breakEnd && endMin > breakStart) return false;
     }
     return !appointments.some(a => a.date === date && a.professionalId === professional.id && !['cancelado','falta'].includes(a.status) && startMin < timeToMin(a.end) && endMin > timeToMin(a.start));
   }
@@ -1272,19 +1470,7 @@
       const t = minToTime(m);
       const startDate = new Date(`${date}T${t}:00`);
       if (startDate < minDate) continue;
-      let cursor = m;
-      let ok = true;
-      for (const item of items) {
-        const service = services.find(s => s.id === item.serviceId);
-        const professional = professionals.find(p => p.id === item.professionalId);
-        const dur = Number(service?.duration || 0) + Number(service?.buffer ?? salon?.bufferMinutes ?? 0);
-        if (!dur || !isProfessionalSegmentAvailable({ salon, professional, date, startMin: cursor, endMin: cursor + dur, appointments })) {
-          ok = false;
-          break;
-        }
-        cursor += dur;
-      }
-      if (ok) slots.push(t);
+      if (buildServicePlanForStart(salonId, items, date, m)) slots.push(t);
     }
     return slots;
   }
@@ -1413,37 +1599,36 @@
     if (!start) return toast('Selecione um horário disponível.');
     const availableSlots = getMultiAvailableSlots(salon.id, items, date);
     if (!availableSlots.includes(start)) return toast('Este horário não está disponível ou já passou.');
+    const plan = buildServicePlanForStart(salon.id, items, date, timeToMin(start));
+    if (!plan) return toast('Não foi possível encaixar todos os serviços nos horários das profissionais.');
     const db = getDb();
     const { services, professionals } = salonData(salon.id);
     const clientId = String(data.get('clientId'));
     const groupId = uid('grp');
     const notes = String(data.get('notes') || '');
-    let cursor = timeToMin(start);
-    items.forEach((item, index) => {
-      const service = services.find(s => s.id === item.serviceId);
-      const duration = itemDuration(item, services, salon);
-      const appStart = minToTime(cursor);
-      const appEnd = minToTime(cursor + duration);
+    const orderedItems = plan.items;
+    const summary = itemSummary(orderedItems, services, professionals, start);
+    plan.segments.forEach((segment, index) => {
+      const service = services.find(s => s.id === segment.serviceId);
       db.appointments.push({
         id: uid('app'),
         groupId,
         groupIndex: index + 1,
-        groupTotal: items.length,
+        groupTotal: orderedItems.length,
         salonId: salon.id,
         clientId,
-        professionalId: item.professionalId,
-        serviceIds: [item.serviceId],
+        professionalId: segment.professionalId,
+        serviceIds: [segment.serviceId],
         date,
-        start: appStart,
-        end: appEnd,
+        start: segment.start,
+        end: segment.end,
         status: 'agendado',
         total: Number(service?.price || 0),
-        duration,
-        notes: `${notes}${items.length > 1 ? (notes ? '\n' : '') + 'Atendimento combinado: ' + itemSummary(items, services, professionals, start) : ''}`,
+        duration: segment.duration,
+        notes: `${notes}${orderedItems.length > 1 ? (notes ? '\n' : '') + 'Atendimento combinado: ' + summary : ''}`,
         createdBy: currentUser().id,
         createdAt: new Date().toISOString()
       });
-      cursor += duration;
     });
     saveDb(db);
     state.modal = null;
@@ -1513,27 +1698,31 @@
     const data = new FormData(event.currentTarget);
     const services = data.getAll('services');
     if (!services.length) return toast('Selecione pelo menos um serviço.');
+    const weeklySchedule = scheduleFromForm(data);
+    const scheduleError = validateWeeklySchedule(weeklySchedule);
+    if (scheduleError) return toast(scheduleError);
+    const first = firstActiveSchedule(weeklySchedule);
+    const workDays = WEEK_DAYS.filter(day => weeklySchedule[day.value].active).map(day => day.value);
     const payload = {
       salonId: salon.id,
       name: String(data.get('name')).trim(),
       phone: String(data.get('phone') || '').trim(),
       specialty: String(data.get('specialty') || '').trim(),
       services,
-      start: String(data.get('start')),
-      end: String(data.get('end')),
+      weeklySchedule,
+      workDays,
+      start: first.start,
+      end: first.end,
+      lunchStart: first.breakStart || '',
+      lunchEnd: first.breakEnd || '',
       commissionDefault: Number(data.get('commissionDefault') || 0),
       active: data.has('active')
     };
     if (!payload.name) return toast('Informe o nome da profissional.');
     const db = getDb();
     const existing = db.professionals.find(p => p.id === professionalId && p.salonId === salon.id);
-    if (existing) Object.assign(existing, payload, {
-      workDays: existing.workDays || [1,2,3,4,5,6],
-      lunchStart: existing.lunchStart || '12:30',
-      lunchEnd: existing.lunchEnd || '13:30',
-      color: existing.color || '#C89B7B'
-    });
-    else db.professionals.push({ id: uid('pro'), ...payload, workDays: [1,2,3,4,5,6], lunchStart: '12:30', lunchEnd: '13:30', color: '#C89B7B' });
+    if (existing) Object.assign(existing, payload, { color: existing.color || '#C89B7B' });
+    else db.professionals.push({ id: uid('pro'), ...payload, color: '#C89B7B' });
     saveDb(db);
     state.modal = null;
     toast(existing ? 'Profissional atualizada.' : 'Profissional cadastrada.');
@@ -1816,43 +2005,40 @@
     if (!b.clientName.trim() || normalizePhone(b.clientPhone).length < 10) return toast('Informe nome e WhatsApp válidos.');
     const slots = getMultiAvailableSlots(salonId, items, b.date);
     if (!slots.includes(b.time)) return toast('Este horário não está mais disponível.');
+    const plan = buildServicePlanForStart(salonId, items, b.date, timeToMin(b.time));
+    if (!plan) return toast('Não foi possível encaixar todos os serviços nos horários das profissionais.');
     const db = getDb();
     let client = db.clients.find(c => c.salonId === salonId && normalizePhone(c.phone) === normalizePhone(b.clientPhone));
     if (!client) {
-      client = { id: uid('cli'), salonId, name: b.clientName.trim(), phone: b.clientPhone.trim(), email: '', preferredProfessionalId: items[0].professionalId, notes: '', formula: '', visits: 0, totalSpent: 0, createdAt: new Date().toISOString() };
+      client = { id: uid('cli'), salonId, name: b.clientName.trim(), phone: b.clientPhone.trim(), email: '', preferredProfessionalId: plan.items[0].professionalId, notes: '', formula: '', visits: 0, totalSpent: 0, createdAt: new Date().toISOString() };
       db.clients.push(client);
     }
     const groupId = uid('grp');
-    let cursor = timeToMin(b.time);
-    const summary = itemSummary(items, services, professionals, b.time);
-    items.forEach((item, index) => {
-      const service = services.find(s => s.id === item.serviceId);
-      const duration = itemDuration(item, services, salon);
-      const start = minToTime(cursor);
-      const end = minToTime(cursor + duration);
+    const summary = itemSummary(plan.items, services, professionals, b.time);
+    plan.segments.forEach((segment, index) => {
+      const service = services.find(s => s.id === segment.serviceId);
       db.appointments.push({
         id: uid('app'),
         groupId,
         groupIndex: index + 1,
-        groupTotal: items.length,
+        groupTotal: plan.items.length,
         salonId,
         clientId: client.id,
-        professionalId: item.professionalId,
-        serviceIds: [item.serviceId],
+        professionalId: segment.professionalId,
+        serviceIds: [segment.serviceId],
         date: b.date,
-        start,
-        end,
+        start: segment.start,
+        end: segment.end,
         status: 'agendado',
         total: Number(service?.price || 0),
-        duration,
-        notes: `${b.notes || 'Agendado pela cliente no link público.'}${items.length > 1 ? '\nAtendimento combinado: ' + summary : ''}`,
+        duration: segment.duration,
+        notes: `${b.notes || 'Agendado pela cliente no link público.'}${plan.items.length > 1 ? '\nAtendimento combinado: ' + summary : ''}`,
         createdBy: 'public',
         createdAt: new Date().toISOString()
       });
-      cursor += duration;
     });
     saveDb(db);
-    const msg = `Olá, ${client.name}! Seu horário no ${salon.name} foi solicitado para ${brDate(b.date)}. Serviços: ${summary}. Valor total: ${money(multiServiceTotal(items, services))}.`;
+    const msg = `Olá, ${client.name}! Seu horário no ${salon.name} foi solicitado para ${brDate(b.date)}. Serviços: ${summary}. Valor total: ${money(multiServiceTotal(plan.items, services))}.`;
     state.publicBooking = { items: [], draftProfessionalId: '', draftServiceId: '', date: todayISO(), time: '', clientName: '', clientPhone: '', notes: '' };
     render();
     setTimeout(() => {

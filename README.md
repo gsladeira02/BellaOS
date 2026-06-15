@@ -156,3 +156,24 @@ A conta de demonstração não possui bloqueio de ações. Ela pode criar, edita
 - Serviços que não foram marcados no cadastro da profissional não aparecem no agendamento público nem no agendamento interno.
 - Ao trocar a profissional, o sistema redefine automaticamente o serviço para o primeiro item válido do escopo dela.
 - A validação ao adicionar o serviço continua bloqueando qualquer combinação inválida.
+
+## Atualização de horários por dia da semana
+
+- Cada profissional agora pode ter horários diferentes em cada dia da semana.
+- Em **Profissionais > Editar**, é possível ativar ou desativar cada dia individualmente.
+- Para cada dia, é possível definir entrada, saída, início do intervalo e fim do intervalo.
+- A agenda pública e a agenda interna consideram esses horários na hora de mostrar os horários disponíveis.
+- Horários dentro do intervalo da profissional não aparecem para agendamento.
+- A compatibilidade com os horários antigos foi mantida: profissionais antigas são convertidas automaticamente para a nova grade semanal.
+
+## Atualização: encaixe inteligente de múltiplos serviços
+
+O agendamento com múltiplos serviços agora procura automaticamente a melhor sequência de atendimento para o horário inicial escolhido, respeitando:
+
+- horário de trabalho de cada profissional por dia da semana;
+- intervalo/almoço de cada profissional;
+- serviços vinculados ao escopo de cada profissional;
+- bloqueio de horários passados;
+- maquiagem, penteado e noiva sempre no final da sequência.
+
+A cliente escolhe os serviços e o horário de início. O BellaOS só mostra horários em que todos os serviços conseguem ser encaixados corretamente na agenda das profissionais responsáveis.
