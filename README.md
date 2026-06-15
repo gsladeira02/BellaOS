@@ -115,3 +115,11 @@ bellaos-completo/
 
 ## Observação sobre demonstração
 A conta de demonstração não possui bloqueio de ações. Ela pode criar, editar, cancelar e testar os módulos normalmente.
+
+
+## Atualização de agendamento
+
+- O novo agendamento interno agora mostra horários disponíveis para seleção, em vez de deixar digitar qualquer horário.
+- Horários que já passaram não aparecem e também são bloqueados na confirmação.
+- A agenda pública agora começa pela escolha da profissional e mostra apenas os serviços que aquela profissional realiza.
+- A agenda interna também filtra os serviços conforme a profissional escolhida.
