@@ -885,8 +885,8 @@
     const salon = currentSalon();
     const { clients, professionals, services } = salonData(salon.id);
     const draft = ensureAppointmentDraft(salon.id);
-    const activeServices = getActiveServices(salon.id);
-    const availablePros = getProfessionalsForService(salon.id, draft.draftServiceId);
+    const activeProfessionals = professionals.filter(p => p.active);
+    const availableServices = getActiveServicesForProfessional(salon.id, draft.draftProfessionalId);
     const slots = getMultiAvailableSlots(salon.id, draft.items, draft.date);
     const total = multiServiceTotal(draft.items, services);
     const duration = multiServiceDuration(draft.items, services, salon);
@@ -897,13 +897,13 @@
         <div class="card" style="margin-bottom:14px">
           <div class="card-title">Adicionar serviço ao atendimento</div>
           <div class="card-sub" style="margin-bottom:12px">Escolha os serviços. O BellaOS organiza a ordem automaticamente; maquiagem e penteado ficam no final.</div>
-          <div class="field"><label>Serviço</label><select onchange="Bella.setAppointmentItemDraft('serviceId', this.value)" ${activeServices.length ? '' : 'disabled'}>
-            ${activeServices.length ? activeServices.map(s => `<option value="${s.id}" ${draft.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)} · ${money(s.price)} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço cadastrado</option>`}
+          <div class="field"><label>Profissional</label><select onchange="Bella.setAppointmentItemDraft('professionalId', this.value)" ${activeProfessionals.length ? '' : 'disabled'}>
+            ${activeProfessionals.length ? activeProfessionals.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional ativa</option>`}
+          </select><small>Escolha a profissional para ver apenas os serviços que ela realiza.</small></div>
+          <div class="field"><label>Serviço disponível para esta profissional</label><select onchange="Bella.setAppointmentItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
+            ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${draft.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)} · ${money(s.price)} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço no escopo desta profissional</option>`}
           </select></div>
-          <div class="field"><label>Profissional</label><select onchange="Bella.setAppointmentItemDraft('professionalId', this.value)" ${availablePros.length ? '' : 'disabled'}>
-            ${availablePros.length ? availablePros.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional realiza este serviço</option>`}
-          </select><small>As profissionais mudam de acordo com o serviço escolhido.</small></div>
-          <button class="btn secondary full" type="button" onclick="Bella.addAppointmentItem()" ${(!draft.draftProfessionalId || !draft.draftServiceId) ? 'disabled' : ''}>Adicionar serviço</button>
+          <button class="btn secondary full" type="button" onclick="Bella.addAppointmentItem()" ${(!draft.draftProfessionalId || !draft.draftServiceId || !availableServices.length) ? 'disabled' : ''}>Adicionar serviço</button>
         </div>
 
         <div class="field"><label>Serviços escolhidos</label><small>Ordem automática do atendimento. Maquiagem e penteado são encaixados no final.</small>
@@ -1040,8 +1040,8 @@
     const { services, professionals } = salonData(salon.id);
     ensurePublicBookingState(salon.id);
     const b = state.publicBooking;
-    const activeServices = getActiveServices(salon.id);
-    const availablePros = getProfessionalsForService(salon.id, b.draftServiceId);
+    const activeProfessionals = professionals.filter(p => p.active);
+    const availableServices = getActiveServicesForProfessional(salon.id, b.draftProfessionalId);
     const slots = getMultiAvailableSlots(salon.id, b.items, b.date);
     const total = multiServiceTotal(b.items, services);
     const duration = multiServiceDuration(b.items, services, salon);
@@ -1058,13 +1058,13 @@
         <section class="step">
           <div class="section"><h2>1. Escolha os serviços</h2></div>
           <div class="card">
-            <div class="field"><label>Serviço</label><select onchange="Bella.setPublicItemDraft('serviceId', this.value)" ${activeServices.length ? '' : 'disabled'}>
-              ${activeServices.length ? activeServices.map(s => `<option value="${s.id}" ${b.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)}${salon.showPrices ? ' · ' + money(s.price) : ''} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço disponível</option>`}
+            <div class="field"><label>Profissional</label><select onchange="Bella.setPublicItemDraft('professionalId', this.value)" ${activeProfessionals.length ? '' : 'disabled'}>
+              ${activeProfessionals.length ? activeProfessionals.map(p => `<option value="${p.id}" ${b.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional ativa</option>`}
+            </select><small>Escolha a profissional para ver apenas os serviços que ela realiza.</small></div>
+            <div class="field"><label>Serviço disponível para esta profissional</label><select onchange="Bella.setPublicItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
+              ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${b.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)}${salon.showPrices ? ' · ' + money(s.price) : ''} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço no escopo desta profissional</option>`}
             </select></div>
-            <div class="field"><label>Profissional</label><select onchange="Bella.setPublicItemDraft('professionalId', this.value)" ${availablePros.length ? '' : 'disabled'}>
-              ${availablePros.length ? availablePros.map(p => `<option value="${p.id}" ${b.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional realiza este serviço</option>`}
-            </select><small>As profissionais mudam de acordo com o serviço escolhido.</small></div>
-            <button class="btn secondary full" type="button" onclick="Bella.addPublicItem()" ${(!b.draftProfessionalId || !b.draftServiceId || !enabled) ? 'disabled' : ''}>Adicionar serviço</button>
+            <button class="btn secondary full" type="button" onclick="Bella.addPublicItem()" ${(!b.draftProfessionalId || !b.draftServiceId || !availableServices.length || !enabled) ? 'disabled' : ''}>Adicionar serviço</button>
           </div>
         </section>
 
@@ -1101,10 +1101,15 @@
     `;
   }
 
-  function getPossibleProfessionals(salonId, serviceIds) {
+  function getActiveProfessionals(salonId) {
     const { professionals } = salonData(salonId);
-    if (!serviceIds.length) return professionals.filter(p => p.active);
-    return professionals.filter(p => p.active && serviceIds.every(id => (p.services || []).includes(id)));
+    return professionals.filter(p => p.active);
+  }
+
+  function getPossibleProfessionals(salonId, serviceIds) {
+    const professionals = getActiveProfessionals(salonId);
+    if (!serviceIds.length) return professionals;
+    return professionals.filter(p => serviceIds.every(id => (p.services || []).includes(id)));
   }
 
   function getActiveServices(salonId) {
@@ -1157,10 +1162,10 @@
     if (!Array.isArray(b.items)) b.items = [];
     if (!b.date || b.date < today) b.date = today;
     b.items = sanitizeServiceItems(salonId, b.items);
-    const activeServices = getActiveServices(salonId);
-    if (!b.draftServiceId || !activeServices.some(s => s.id === b.draftServiceId)) b.draftServiceId = activeServices[0]?.id || '';
-    const availablePros = getProfessionalsForService(salonId, b.draftServiceId);
-    if (!b.draftProfessionalId || !availablePros.some(p => p.id === b.draftProfessionalId)) b.draftProfessionalId = availablePros[0]?.id || '';
+    const activePros = getActiveProfessionals(salonId);
+    if (!b.draftProfessionalId || !activePros.some(p => p.id === b.draftProfessionalId)) b.draftProfessionalId = activePros[0]?.id || '';
+    const availableServices = getActiveServicesForProfessional(salonId, b.draftProfessionalId);
+    if (!b.draftServiceId || !availableServices.some(s => s.id === b.draftServiceId)) b.draftServiceId = availableServices[0]?.id || '';
     const slots = getMultiAvailableSlots(salonId, b.items, b.date);
     if (!slots.includes(b.time)) b.time = '';
     return b;
@@ -1172,10 +1177,10 @@
     if (!Array.isArray(d.items)) d.items = [];
     if (!d.date || d.date < today) d.date = state.selectedDate && state.selectedDate >= today ? state.selectedDate : today;
     d.items = sanitizeServiceItems(salonId, d.items);
-    const activeServices = getActiveServices(salonId);
-    if (!d.draftServiceId || !activeServices.some(s => s.id === d.draftServiceId)) d.draftServiceId = activeServices[0]?.id || '';
-    const availablePros = getProfessionalsForService(salonId, d.draftServiceId);
-    if (!d.draftProfessionalId || !availablePros.some(p => p.id === d.draftProfessionalId)) d.draftProfessionalId = availablePros[0]?.id || '';
+    const activePros = getActiveProfessionals(salonId);
+    if (!d.draftProfessionalId || !activePros.some(p => p.id === d.draftProfessionalId)) d.draftProfessionalId = activePros[0]?.id || '';
+    const availableServices = getActiveServicesForProfessional(salonId, d.draftProfessionalId);
+    if (!d.draftServiceId || !availableServices.some(s => s.id === d.draftServiceId)) d.draftServiceId = availableServices[0]?.id || '';
     const slots = getMultiAvailableSlots(salonId, d.items, d.date);
     if (!slots.includes(d.time)) d.time = '';
     return d;
@@ -1692,12 +1697,19 @@
     const salon = salonBySlug(location.pathname.split('/agenda/')[1] || '') || currentSalon();
     if (!salon) return;
     ensurePublicBookingState(salon.id);
+    if (field === 'professionalId') {
+      state.publicBooking.draftProfessionalId = value;
+      const services = getActiveServicesForProfessional(salon.id, value);
+      if (!services.some(s => s.id === state.publicBooking.draftServiceId)) state.publicBooking.draftServiceId = services[0]?.id || '';
+    }
     if (field === 'serviceId') {
       state.publicBooking.draftServiceId = value;
-      const available = getProfessionalsForService(salon.id, value);
-      state.publicBooking.draftProfessionalId = available[0]?.id || '';
+      const pro = getActiveProfessionals(salon.id).find(p => p.id === state.publicBooking.draftProfessionalId);
+      if (!pro || !(pro.services || []).includes(value)) {
+        const available = getProfessionalsForService(salon.id, value);
+        state.publicBooking.draftProfessionalId = available[0]?.id || '';
+      }
     }
-    if (field === 'professionalId') state.publicBooking.draftProfessionalId = value;
     render();
   }
 
@@ -1724,12 +1736,19 @@
     const salon = currentSalon();
     if (!salon) return;
     ensureAppointmentDraft(salon.id);
+    if (field === 'professionalId') {
+      state.appointmentDraft.draftProfessionalId = value;
+      const services = getActiveServicesForProfessional(salon.id, value);
+      if (!services.some(s => s.id === state.appointmentDraft.draftServiceId)) state.appointmentDraft.draftServiceId = services[0]?.id || '';
+    }
     if (field === 'serviceId') {
       state.appointmentDraft.draftServiceId = value;
-      const available = getProfessionalsForService(salon.id, value);
-      state.appointmentDraft.draftProfessionalId = available[0]?.id || '';
+      const pro = getActiveProfessionals(salon.id).find(p => p.id === state.appointmentDraft.draftProfessionalId);
+      if (!pro || !(pro.services || []).includes(value)) {
+        const available = getProfessionalsForService(salon.id, value);
+        state.appointmentDraft.draftProfessionalId = available[0]?.id || '';
+      }
     }
-    if (field === 'professionalId') state.appointmentDraft.draftProfessionalId = value;
     render();
   }
 
