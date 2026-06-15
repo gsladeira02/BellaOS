@@ -4,7 +4,7 @@ Sistema mobile-first para salões de beleza femininos, inspirado nos padrões do
 
 ## O que está incluído
 
-- Logo BellaOS redesenhada em SVG, mais limpa e discreta.
+- Logo BellaOS em SVG no estilo premium usado na arte de divulgação.
 - Login limpo, sem credenciais ou mensagens internas na tela.
 - Troca obrigatória de senha no primeiro login.
 - Conta de demonstração liberada para testes.
@@ -15,10 +15,10 @@ Sistema mobile-first para salões de beleza femininos, inspirado nos padrões do
 - Agendamento com múltiplos serviços.
 - Escolha de profissional ou qualquer profissional disponível.
 - Cálculo automático de duração e valor.
-- Clientes com ficha completa.
+- Clientes com ficha completa, edição e exclusão.
 - Histórico capilar e fórmula de coloração.
-- Serviços, categorias e pacotes.
-- Profissionais com especialidade, horários e comissão.
+- Serviços, categorias e pacotes com edição, ativação/inativação e exclusão.
+- Profissionais com especialidade, horários, comissão, edição e exclusão.
 - Financeiro com receitas, despesas, ticket médio e lucro estimado.
 - Comissões por profissional.
 - Estoque com alertas de baixa.
@@ -26,6 +26,15 @@ Sistema mobile-first para salões de beleza femininos, inspirado nos padrões do
 - Botões de WhatsApp.
 - Configurações completas do salão.
 - Painel administrativo `/admin`.
+
+
+## Atualização desta versão
+
+- Adicionados botões de **Editar** e **Excluir** em Clientes.
+- Adicionados botões de **Editar** e **Excluir** em Serviços.
+- Adicionados botões de **Editar** e **Excluir** em Profissionais.
+- A ficha da cliente também permite editar ou excluir diretamente pelo modal.
+- A logo voltou para o estilo premium da primeira arte, com símbolo feminino circular e tipografia BellaOS.
 
 ## Supabase
 

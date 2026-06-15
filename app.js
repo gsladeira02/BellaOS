@@ -201,6 +201,7 @@
       const parsed = JSON.parse(raw);
       const required = ['salons','users','services','professionals','clients','appointments','products','financial'];
       if (!required.every(k => Array.isArray(parsed[k]))) return seedDb();
+      ['hairHistory','stockMovements','logs','categories'].forEach(k => { if (!Array.isArray(parsed[k])) parsed[k] = []; });
       return parsed;
     } catch (e) {
       return seedDb();
@@ -609,6 +610,11 @@
             <div class="item-main">
               <div class="item-title">${esc(c.name)}</div>
               <div class="item-meta">${esc(c.phone)} · ${c.visits || 0} visita(s)<br>Preferência: ${esc(pro?.name || 'Sem preferência')}${last ? `<br>Último: ${brDate(last.date)} · ${esc(labelStatus(last.status))}` : ''}</div>
+              <div class="actions" style="margin-top:10px">
+                <button class="btn small secondary" type="button" onclick="event.stopPropagation(); Bella.openClient('${c.id}')">Ficha</button>
+                <button class="btn small secondary" type="button" onclick="event.stopPropagation(); Bella.openModal('client',{clientId:'${c.id}'})">Editar</button>
+                <button class="btn small danger" type="button" onclick="event.stopPropagation(); Bella.deleteClient('${c.id}')">Excluir</button>
+              </div>
             </div>
             <div class="item-side">${money(c.totalSpent || 0)}</div>
           </article>`;
@@ -637,9 +643,13 @@
             <div class="item-main">
               <div class="item-title">${esc(s.name)} ${s.active ? '<span class="badge success">Ativo</span>' : '<span class="badge danger">Inativo</span>'}</div>
               <div class="item-meta">${esc(cat)} · ${money(s.price)} · ${s.duration} min<br>Antecedência: ${formatAdvance(s.minAdvanceMinutes)} · Comissão: ${formatCommission(s)}</div>
+              <div class="actions" style="margin-top:10px">
+                <button class="btn small secondary" type="button" onclick="Bella.openModal('service',{serviceId:'${s.id}'})">Editar</button>
+                <button class="btn small danger" type="button" onclick="Bella.deleteService('${s.id}')">Excluir</button>
+              </div>
             </div>
           </article>`;
-        }).join('')}
+        }).join('') || `<div class="empty">Nenhum serviço cadastrado.</div>`}
       </div>
     `;
   }
@@ -693,8 +703,12 @@
           <div class="item-main">
             <div class="item-title">${esc(p.name)} ${p.active ? '<span class="badge success">Ativa</span>' : '<span class="badge danger">Inativa</span>'}</div>
             <div class="item-meta">${esc(p.specialty)}<br>${esc(p.start)} às ${esc(p.end)} · Comissão padrão ${p.commissionDefault}%<br>${p.services.map(id => services.find(s => s.id === id)?.name).filter(Boolean).slice(0,3).join(', ')}${p.services.length > 3 ? '...' : ''}</div>
+            <div class="actions" style="margin-top:10px">
+              <button class="btn small secondary" type="button" onclick="Bella.openModal('professional',{professionalId:'${p.id}'})">Editar</button>
+              <button class="btn small danger" type="button" onclick="Bella.deleteProfessional('${p.id}')">Excluir</button>
+            </div>
           </div>
-        </article>`).join('')}
+        </article>`).join('') || `<div class="empty">Nenhuma profissional cadastrada.</div>`}
       </div>
     `;
   }
@@ -870,47 +884,59 @@
       </form>`;
   }
 
-  function modalClient() {
+  function modalClient(payload = {}) {
     const salon = currentSalon();
-    const { professionals } = salonData(salon.id);
-    return `${modalHeader('Nova cliente')}
-      <form onsubmit="Bella.saveClient(event)">
-        <div class="field"><label>Nome</label><input name="name" required /></div>
-        <div class="field"><label>WhatsApp</label><input name="phone" inputmode="tel" required /></div>
-        <div class="field"><label>E-mail</label><input name="email" type="email" /></div>
-        <div class="field"><label>Profissional preferida</label><select name="preferredProfessionalId"><option value="">Sem preferência</option>${professionals.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></div>
-        <div class="field"><label>Fórmula de coloração</label><input name="formula" placeholder="Ex: 7.1 + OX 20 volumes" /></div>
-        <div class="field"><label>Observações</label><textarea name="notes"></textarea></div>
-        <button class="btn brand full" type="submit">Cadastrar cliente</button>
+    const { clients, professionals } = salonData(salon.id);
+    const c = clients.find(x => x.id === payload.clientId);
+    const isEdit = Boolean(c);
+    return `${modalHeader(isEdit ? 'Editar cliente' : 'Nova cliente')}
+      <form onsubmit="Bella.saveClient(event, '${c?.id || ''}')">
+        <div class="field"><label>Nome</label><input name="name" value="${esc(c?.name || '')}" required /></div>
+        <div class="field"><label>WhatsApp</label><input name="phone" inputmode="tel" value="${esc(c?.phone || '')}" required /></div>
+        <div class="field"><label>E-mail</label><input name="email" type="email" value="${esc(c?.email || '')}" /></div>
+        <div class="field"><label>Profissional preferida</label><select name="preferredProfessionalId"><option value="">Sem preferência</option>${professionals.map(p => `<option value="${p.id}" ${c?.preferredProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Fórmula de coloração</label><input name="formula" value="${esc(c?.formula || '')}" placeholder="Ex: 7.1 + OX 20 volumes" /></div>
+        <div class="field"><label>Observações</label><textarea name="notes">${esc(c?.notes || '')}</textarea></div>
+        <button class="btn brand full" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar cliente'}</button>
+        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteClient('${c.id}')">Excluir cliente</button>` : ''}
       </form>`;
   }
 
-  function modalService() {
+  function modalService(payload = {}) {
     const salon = currentSalon();
-    const { categories } = salonData(salon.id);
-    return `${modalHeader('Novo serviço')}
-      <form onsubmit="Bella.saveService(event)">
-        <div class="field"><label>Nome</label><input name="name" required /></div>
-        <div class="field"><label>Categoria</label><select name="categoryId">${categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="field-row"><div class="field"><label>Preço</label><input name="price" type="number" step="0.01" required /></div><div class="field"><label>Duração min</label><input name="duration" type="number" required /></div></div>
-        <div class="field"><label>Antecedência mínima</label><select name="minAdvanceMinutes">${[30,60,120,240,360,720,1440,2880,4320].map(m => `<option value="${m}">${formatAdvance(m)}</option>`).join('')}</select></div>
-        <div class="field-row"><div class="field"><label>Comissão tipo</label><select name="commissionType"><option value="percent">Percentual</option><option value="fixed">Valor fixo</option><option value="none">Sem comissão</option></select></div><div class="field"><label>Comissão</label><input name="commissionValue" type="number" step="0.01" value="40" /></div></div>
-        <button class="btn brand full" type="submit">Cadastrar serviço</button>
+    const { services, categories } = salonData(salon.id);
+    const svc = services.find(x => x.id === payload.serviceId);
+    const isEdit = Boolean(svc);
+    const advances = [30,60,120,240,360,720,1440,2880,4320];
+    return `${modalHeader(isEdit ? 'Editar serviço' : 'Novo serviço')}
+      <form onsubmit="Bella.saveService(event, '${svc?.id || ''}')">
+        <div class="field"><label>Nome</label><input name="name" value="${esc(svc?.name || '')}" required /></div>
+        <div class="field"><label>Categoria</label><select name="categoryId">${categories.map(c => `<option value="${c.id}" ${svc?.categoryId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
+        <div class="field-row"><div class="field"><label>Preço</label><input name="price" type="number" step="0.01" value="${esc(svc?.price ?? '')}" required /></div><div class="field"><label>Duração min</label><input name="duration" type="number" value="${esc(svc?.duration ?? '')}" required /></div></div>
+        <div class="field"><label>Antecedência mínima</label><select name="minAdvanceMinutes">${advances.map(m => `<option value="${m}" ${Number(svc?.minAdvanceMinutes || 60) === m ? 'selected' : ''}>${formatAdvance(m)}</option>`).join('')}</select></div>
+        <div class="field-row"><div class="field"><label>Comissão tipo</label><select name="commissionType"><option value="percent" ${svc?.commissionType === 'percent' || !svc ? 'selected' : ''}>Percentual</option><option value="fixed" ${svc?.commissionType === 'fixed' ? 'selected' : ''}>Valor fixo</option><option value="none" ${svc?.commissionType === 'none' ? 'selected' : ''}>Sem comissão</option></select></div><div class="field"><label>Comissão</label><input name="commissionValue" type="number" step="0.01" value="${esc(svc?.commissionValue ?? 40)}" /></div></div>
+        <div class="switch-row"><div><span>Serviço ativo</span><small>Serviços inativos não aparecem na agenda pública.</small></div><input class="checkbox" name="active" type="checkbox" ${svc?.active !== false ? 'checked' : ''}></div>
+        <button class="btn brand full" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar serviço'}</button>
+        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteService('${svc.id}')">Excluir serviço</button>` : ''}
       </form>`;
   }
 
-  function modalProfessional() {
+  function modalProfessional(payload = {}) {
     const salon = currentSalon();
-    const { services } = salonData(salon.id);
-    return `${modalHeader('Nova profissional')}
-      <form onsubmit="Bella.saveProfessional(event)">
-        <div class="field"><label>Nome</label><input name="name" required /></div>
-        <div class="field"><label>WhatsApp</label><input name="phone" inputmode="tel" /></div>
-        <div class="field"><label>Especialidade</label><input name="specialty" placeholder="Cabelo, unhas, maquiagem..." /></div>
-        <div class="field"><label>Serviços realizados</label><div class="service-picker">${services.filter(s=>s.active).map(s => `<label class="service-option"><input type="checkbox" name="services" value="${s.id}"><div><strong>${esc(s.name)}</strong><div class="card-sub">${money(s.price)} · ${s.duration} min</div></div></label>`).join('')}</div></div>
-        <div class="field-row"><div class="field"><label>Início</label><input name="start" type="time" value="09:00" /></div><div class="field"><label>Fim</label><input name="end" type="time" value="18:00" /></div></div>
-        <div class="field"><label>Comissão padrão %</label><input name="commissionDefault" type="number" value="40" /></div>
-        <button class="btn brand full" type="submit">Cadastrar profissional</button>
+    const { professionals, services } = salonData(salon.id);
+    const p = professionals.find(x => x.id === payload.professionalId);
+    const isEdit = Boolean(p);
+    return `${modalHeader(isEdit ? 'Editar profissional' : 'Nova profissional')}
+      <form onsubmit="Bella.saveProfessional(event, '${p?.id || ''}')">
+        <div class="field"><label>Nome</label><input name="name" value="${esc(p?.name || '')}" required /></div>
+        <div class="field"><label>WhatsApp</label><input name="phone" inputmode="tel" value="${esc(p?.phone || '')}" /></div>
+        <div class="field"><label>Especialidade</label><input name="specialty" value="${esc(p?.specialty || '')}" placeholder="Cabelo, unhas, maquiagem..." /></div>
+        <div class="field"><label>Serviços realizados</label><div class="service-picker">${services.filter(s=>s.active || p?.services?.includes(s.id)).map(s => `<label class="service-option"><input type="checkbox" name="services" value="${s.id}" ${p?.services?.includes(s.id) ? 'checked' : ''}><div><strong>${esc(s.name)}</strong><div class="card-sub">${money(s.price)} · ${s.duration} min</div></div></label>`).join('')}</div></div>
+        <div class="field-row"><div class="field"><label>Início</label><input name="start" type="time" value="${esc(p?.start || '09:00')}" /></div><div class="field"><label>Fim</label><input name="end" type="time" value="${esc(p?.end || '18:00')}" /></div></div>
+        <div class="field"><label>Comissão padrão %</label><input name="commissionDefault" type="number" value="${esc(p?.commissionDefault ?? 40)}" /></div>
+        <div class="switch-row"><div><span>Profissional ativa</span><small>Profissionais inativas não recebem novos agendamentos online.</small></div><input class="checkbox" name="active" type="checkbox" ${p?.active !== false ? 'checked' : ''}></div>
+        <button class="btn brand full" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar profissional'}</button>
+        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteProfessional('${p.id}')">Excluir profissional</button>` : ''}
       </form>`;
   }
 
@@ -949,6 +975,10 @@
       <div class="card tight">
         <div class="card-title">Ficha da cliente</div>
         <div class="card-sub">WhatsApp: ${esc(c.phone)}<br>Preferência: ${esc(pro?.name || 'Sem preferência')}<br>Total gasto: ${money(c.totalSpent || 0)} · ${c.visits || 0} visita(s)</div>
+        <div class="actions" style="margin-top:12px">
+          <button class="btn small secondary" type="button" onclick="Bella.openModal('client',{clientId:'${c.id}'})">Editar</button>
+          <button class="btn small danger" type="button" onclick="Bella.deleteClient('${c.id}')">Excluir</button>
+        </div>
       </div>
       <section class="section"><h2>Observações</h2></section>
       <div class="card"><div class="card-sub">${esc(c.notes || 'Sem observações.')}${c.formula ? `<br><br><strong>Fórmula:</strong> ${esc(c.formula)}` : ''}</div></div>
@@ -1117,7 +1147,7 @@
   function setDate(date) { state.selectedDate = date || todayISO(); render(); }
   function setClientSearch(value) { state.clientSearch = value; render(); }
   function setServiceFilter(value) { state.serviceFilter = value; render(); }
-  function openModal(name) { state.modal = name; render(); }
+  function openModal(name, payload = {}) { state.modal = typeof name === 'object' ? name : { name, ...payload }; render(); }
   function closeModal(event) { if (event && event.target !== event.currentTarget) return; state.modal = null; render(); }
   function openClient(clientId) { state.modal = { name: 'clientDetail', clientId }; render(); }
   function goLogin() { window.history.pushState({}, '', '/'); render(); }
@@ -1170,44 +1200,162 @@
     render();
   }
 
-  function saveClient(event) {
+  function saveClient(event, clientId = '') {
     event.preventDefault();
     if (!canEdit()) return;
     const salon = currentSalon();
     const data = new FormData(event.currentTarget);
+    const payload = {
+      salonId: salon.id,
+      name: String(data.get('name')).trim(),
+      phone: String(data.get('phone')).trim(),
+      email: String(data.get('email') || '').trim(),
+      preferredProfessionalId: String(data.get('preferredProfessionalId') || ''),
+      notes: String(data.get('notes') || ''),
+      formula: String(data.get('formula') || '')
+    };
+    if (!payload.name || !payload.phone) return toast('Informe nome e WhatsApp.');
     const db = getDb();
-    db.clients.push({ id: uid('cli'), salonId: salon.id, name: String(data.get('name')), phone: String(data.get('phone')), email: String(data.get('email') || ''), preferredProfessionalId: String(data.get('preferredProfessionalId') || ''), notes: String(data.get('notes') || ''), formula: String(data.get('formula') || ''), visits: 0, totalSpent: 0, createdAt: new Date().toISOString() });
+    const existing = db.clients.find(c => c.id === clientId && c.salonId === salon.id);
+    if (existing) Object.assign(existing, payload);
+    else db.clients.push({ id: uid('cli'), ...payload, visits: 0, totalSpent: 0, createdAt: new Date().toISOString() });
     saveDb(db);
     state.modal = null;
-    toast('Cliente cadastrada.');
+    toast(existing ? 'Cliente atualizada.' : 'Cliente cadastrada.');
     render();
   }
 
-  function saveService(event) {
+  function saveService(event, serviceId = '') {
     event.preventDefault();
     if (!canEdit()) return;
     const salon = currentSalon();
     const data = new FormData(event.currentTarget);
+    const payload = {
+      salonId: salon.id,
+      categoryId: String(data.get('categoryId')),
+      name: String(data.get('name')).trim(),
+      price: Number(data.get('price')),
+      duration: Number(data.get('duration')),
+      minAdvanceMinutes: Number(data.get('minAdvanceMinutes')),
+      buffer: salon.bufferMinutes,
+      active: data.has('active'),
+      commissionType: String(data.get('commissionType')),
+      commissionValue: Number(data.get('commissionValue') || 0)
+    };
+    if (!payload.name || !payload.price || !payload.duration) return toast('Preencha nome, preço e duração.');
     const db = getDb();
-    db.services.push({ id: uid('srv'), salonId: salon.id, categoryId: String(data.get('categoryId')), name: String(data.get('name')), price: Number(data.get('price')), duration: Number(data.get('duration')), minAdvanceMinutes: Number(data.get('minAdvanceMinutes')), buffer: salon.bufferMinutes, active: true, commissionType: String(data.get('commissionType')), commissionValue: Number(data.get('commissionValue') || 0), products: [] });
+    const existing = db.services.find(s => s.id === serviceId && s.salonId === salon.id);
+    if (existing) Object.assign(existing, payload, { products: existing.products || [] });
+    else db.services.push({ id: uid('srv'), ...payload, products: [] });
     saveDb(db);
     state.modal = null;
-    toast('Serviço cadastrado.');
+    toast(existing ? 'Serviço atualizado.' : 'Serviço cadastrado.');
     render();
   }
 
-  function saveProfessional(event) {
+  function saveProfessional(event, professionalId = '') {
     event.preventDefault();
     if (!canEdit()) return;
     const salon = currentSalon();
     const data = new FormData(event.currentTarget);
     const services = data.getAll('services');
     if (!services.length) return toast('Selecione pelo menos um serviço.');
+    const payload = {
+      salonId: salon.id,
+      name: String(data.get('name')).trim(),
+      phone: String(data.get('phone') || '').trim(),
+      specialty: String(data.get('specialty') || '').trim(),
+      services,
+      start: String(data.get('start')),
+      end: String(data.get('end')),
+      commissionDefault: Number(data.get('commissionDefault') || 0),
+      active: data.has('active')
+    };
+    if (!payload.name) return toast('Informe o nome da profissional.');
     const db = getDb();
-    db.professionals.push({ id: uid('pro'), salonId: salon.id, name: String(data.get('name')), phone: String(data.get('phone') || ''), specialty: String(data.get('specialty') || ''), services, workDays: [1,2,3,4,5,6], start: String(data.get('start')), end: String(data.get('end')), lunchStart: '12:30', lunchEnd: '13:30', commissionDefault: Number(data.get('commissionDefault') || 0), color: '#C89B7B', active: true });
+    const existing = db.professionals.find(p => p.id === professionalId && p.salonId === salon.id);
+    if (existing) Object.assign(existing, payload, {
+      workDays: existing.workDays || [1,2,3,4,5,6],
+      lunchStart: existing.lunchStart || '12:30',
+      lunchEnd: existing.lunchEnd || '13:30',
+      color: existing.color || '#C89B7B'
+    });
+    else db.professionals.push({ id: uid('pro'), ...payload, workDays: [1,2,3,4,5,6], lunchStart: '12:30', lunchEnd: '13:30', color: '#C89B7B' });
     saveDb(db);
     state.modal = null;
-    toast('Profissional cadastrada.');
+    toast(existing ? 'Profissional atualizada.' : 'Profissional cadastrada.');
+    render();
+  }
+
+  function deleteClient(clientId) {
+    if (!canEdit()) return;
+    const db = getDb();
+    const client = db.clients.find(c => c.id === clientId && c.salonId === currentSalon()?.id);
+    if (!client) return;
+    const relatedAppointmentIds = db.appointments.filter(a => a.clientId === clientId).map(a => a.id);
+    const message = relatedAppointmentIds.length
+      ? `Excluir ${client.name}? A ficha, histórico capilar e ${relatedAppointmentIds.length} agendamento(s) vinculados também serão removidos.`
+      : `Excluir ${client.name}?`;
+    if (!confirm(message)) return;
+    db.clients = db.clients.filter(c => c.id !== clientId);
+    db.hairHistory = db.hairHistory.filter(h => h.clientId !== clientId);
+    db.appointments = db.appointments.filter(a => a.clientId !== clientId);
+    db.financial = db.financial.filter(f => !relatedAppointmentIds.includes(f.appointmentId));
+    saveDb(db);
+    state.modal = null;
+    toast('Cliente excluída.');
+    render();
+  }
+
+  function deleteService(serviceId) {
+    if (!canEdit()) return;
+    const db = getDb();
+    const salon = currentSalon();
+    const service = db.services.find(s => s.id === serviceId && s.salonId === salon?.id);
+    if (!service) return;
+    if (!confirm(`Excluir o serviço "${service.name}"? Ele será removido das profissionais e dos agendamentos vinculados.`)) return;
+    db.services = db.services.filter(s => s.id !== serviceId);
+    db.professionals.forEach(p => { p.services = (p.services || []).filter(id => id !== serviceId); });
+    const appointmentsToRemove = [];
+    db.appointments.forEach(a => {
+      if (!a.serviceIds?.includes(serviceId)) return;
+      a.serviceIds = a.serviceIds.filter(id => id !== serviceId);
+      if (!a.serviceIds.length) {
+        appointmentsToRemove.push(a.id);
+        return;
+      }
+      const availableServices = db.services.filter(s => s.salonId === a.salonId);
+      a.total = a.serviceIds.reduce((sum, id) => sum + Number(availableServices.find(s => s.id === id)?.price || 0), 0);
+      a.duration = a.serviceIds.reduce((sum, id) => sum + Number(availableServices.find(s => s.id === id)?.duration || 0) + Number(availableServices.find(s => s.id === id)?.buffer || salon?.bufferMinutes || 0), 0);
+      a.end = minToTime(timeToMin(a.start) + Number(a.duration || 0));
+    });
+    if (appointmentsToRemove.length) {
+      db.appointments = db.appointments.filter(a => !appointmentsToRemove.includes(a.id));
+      db.financial = db.financial.filter(f => !appointmentsToRemove.includes(f.appointmentId));
+    }
+    saveDb(db);
+    state.modal = null;
+    toast('Serviço excluído.');
+    render();
+  }
+
+  function deleteProfessional(professionalId) {
+    if (!canEdit()) return;
+    const db = getDb();
+    const pro = db.professionals.find(p => p.id === professionalId && p.salonId === currentSalon()?.id);
+    if (!pro) return;
+    const related = db.appointments.filter(a => a.professionalId === professionalId).length;
+    const message = related
+      ? `Excluir ${pro.name}? Os agendamentos antigos serão mantidos, mas ficarão sem profissional definida.`
+      : `Excluir ${pro.name}?`;
+    if (!confirm(message)) return;
+    db.professionals = db.professionals.filter(p => p.id !== professionalId);
+    db.clients.forEach(c => { if (c.preferredProfessionalId === professionalId) c.preferredProfessionalId = ''; });
+    db.appointments.forEach(a => { if (a.professionalId === professionalId) a.professionalId = ''; });
+    db.hairHistory.forEach(h => { if (h.professionalId === professionalId) h.professionalId = ''; });
+    saveDb(db);
+    state.modal = null;
+    toast('Profissional excluída.');
     render();
   }
 
@@ -1384,7 +1532,7 @@
 
   window.Bella = {
     login, changePassword, logout, navigate, openModal, closeModal, setDate, setClientSearch, setServiceFilter,
-    updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, saveFinancial, saveProduct,
+    updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, deleteClient, deleteService, deleteProfessional, saveFinancial, saveProduct,
     adjustStock, saveSettings, copyBookingLink, openBookingLink, shareBookingLink, copyText, togglePublicService,
     setPublic, confirmPublicBooking, openClient, addHairHistoryPrompt, toast, goLogin, toggleSalonStatus, openAdminCreateSalon
   };
