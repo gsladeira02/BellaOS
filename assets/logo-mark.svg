@@ -1,6 +1,8 @@
 <svg width="160" height="160" viewBox="0 0 160 160" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="160" height="160" rx="42" fill="#2B2523"/>
-  <path d="M47 116V40h42c20.8 0 34 9.9 34 26.6 0 9.8-5.4 18-14 21.9 11.5 3.6 18.9 12.6 18.9 24.5 0 18-14.2 29.7-36.7 29.7H47Zm25-45.7h17.3c6.4 0 10.1-3.1 10.1-8.5 0-5.3-3.7-8.4-10.1-8.4H72v16.9Zm0 45.1h20.4c7.2 0 11.3-3.5 11.3-9.3 0-5.9-4.1-9.4-11.3-9.4H72v18.7Z" fill="#FAF7F2"/>
-  <path d="M34 134c34-3.3 57-16.5 74.6-39.6 14.3-18.7 25.3-33 50.6-35.2" stroke="#C89B7B" stroke-width="11" stroke-linecap="round"/>
-  <path d="M23 146c40.7-2.2 70.4-13.2 93.5-38.5" stroke="#E8DDD4" stroke-width="4.4" stroke-linecap="round" opacity=".75"/>
+  <rect x="8" y="8" width="144" height="144" rx="44" fill="#FAF7F2" stroke="#E8DDD4" stroke-width="4"/>
+  <path d="M103.5 42.5C87.8 33.1 66.1 35.7 53.3 49.2C40.1 63.1 38.9 84.1 50.7 99.2C60.9 112.3 79.7 116.4 95.1 109.1" stroke="#2B2523" stroke-width="8" stroke-linecap="round"/>
+  <path d="M99 44C110.4 51.6 116.9 64 117.2 77.3C117.5 94.7 106.7 111.1 90.4 117.7" stroke="#C89B7B" stroke-width="8" stroke-linecap="round"/>
+  <path d="M56 103C72 100.5 85.6 92.7 96 79.8" stroke="#8B5E4E" stroke-width="5" stroke-linecap="round"/>
+  <path d="M59 122C75.4 121.8 89.7 117.3 102.6 108.2" stroke="#C89B7B" stroke-width="4" stroke-linecap="round" opacity=".8"/>
+  <circle cx="67" cy="70" r="4" fill="#2B2523"/>
 </svg>

@@ -34,8 +34,9 @@ a { color: inherit; }
 .login-card { width: min(100%, 420px); background: var(--surface); border: 1px solid var(--line); border-radius: 34px; box-shadow: var(--shadow); padding: 28px; }
 .login-logo { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
 .logo-mark { width: 58px; height: 58px; border-radius: 17px; }
-.logo-title { font-size: 32px; font-weight: 850; letter-spacing: -1.2px; line-height: 1; }
-.logo-subtitle { color: var(--muted); font-size: 13px; margin-top: 5px; }
+.logo-title { font-size: 24px; font-weight: 820; letter-spacing: -.6px; line-height: 1; }
+.logo-subtitle { color: var(--muted); font-size: 12px; margin-top: 5px; }
+.public-brand { font-size: 22px; max-width: 330px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .login-card h1 { margin: 0 0 8px; font-size: 25px; letter-spacing: -.7px; }
 .login-card p { margin: 0 0 22px; color: var(--muted); line-height: 1.45; }
 .demo-credentials { margin-top: 18px; padding: 14px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }

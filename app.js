@@ -1,6 +1,14 @@
 (() => {
   const DB_KEY = 'bellaos.db.v1';
   const SESSION_KEY = 'bellaos.session.v1';
+  const PUBLIC_BASE_URL = 'https://os-bella.vercel.app';
+  const SUPABASE_PROJECT_URL = 'https://omhrigszheellguyyihz.supabase.co';
+  const SUPABASE_REST_URL = `${SUPABASE_PROJECT_URL}/rest/v1`;
+  const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Urza4wG2be2xxgMzxJrCEQ_ya_uV0z-';
+  const SUPABASE_STATE_ID = 'bellaos_app';
+  const USE_SUPABASE_SYNC = true;
+  let remoteSyncStarted = false;
+  let remoteSaveTimer = null;
   const app = document.getElementById('app');
   const toastEl = document.getElementById('toast');
 
@@ -77,6 +85,18 @@
       .toLowerCase().trim()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
+  }
+
+  function bookingUrl(slug) {
+    return `${PUBLIC_BASE_URL.replace(/\/$/, '')}/agenda/${slug}`;
+  }
+
+  function supabaseHeaders(extra = {}) {
+    return {
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${SUPABASE_PUBLISHABLE_KEY}`,
+      ...extra
+    };
   }
 
   function toast(message) {
@@ -170,6 +190,7 @@
       logs: []
     };
     localStorage.setItem(DB_KEY, JSON.stringify(db));
+    scheduleRemoteSave(db);
     return db;
   }
 
@@ -188,6 +209,53 @@
 
   function saveDb(db) {
     localStorage.setItem(DB_KEY, JSON.stringify(db));
+    scheduleRemoteSave(db);
+  }
+
+  function scheduleRemoteSave(db) {
+    if (!USE_SUPABASE_SYNC || !SUPABASE_PUBLISHABLE_KEY || !SUPABASE_PROJECT_URL) return;
+    clearTimeout(remoteSaveTimer);
+    const snapshot = JSON.parse(JSON.stringify(db));
+    remoteSaveTimer = setTimeout(() => saveRemoteDb(snapshot), 700);
+  }
+
+  async function saveRemoteDb(db) {
+    try {
+      await fetch(`${SUPABASE_REST_URL}/bellaos_state`, {
+        method: 'POST',
+        headers: supabaseHeaders({
+          'Content-Type': 'application/json',
+          Prefer: 'resolution=merge-duplicates'
+        }),
+        body: JSON.stringify({
+          id: SUPABASE_STATE_ID,
+          payload: db,
+          updated_at: new Date().toISOString()
+        })
+      });
+    } catch (error) {
+      console.warn('BellaOS Supabase sync skipped:', error);
+    }
+  }
+
+  async function startRemoteSync() {
+    if (remoteSyncStarted || !USE_SUPABASE_SYNC || !SUPABASE_PUBLISHABLE_KEY || !SUPABASE_PROJECT_URL) return;
+    remoteSyncStarted = true;
+    try {
+      const response = await fetch(`${SUPABASE_REST_URL}/bellaos_state?id=eq.${encodeURIComponent(SUPABASE_STATE_ID)}&select=payload`, {
+        headers: supabaseHeaders()
+      });
+      if (!response.ok) return;
+      const rows = await response.json();
+      if (rows?.[0]?.payload) {
+        localStorage.setItem(DB_KEY, JSON.stringify(rows[0].payload));
+        render();
+      } else {
+        await saveRemoteDb(getDb());
+      }
+    } catch (error) {
+      console.warn('BellaOS Supabase load skipped:', error);
+    }
   }
 
   function getSession() {
@@ -325,15 +393,15 @@
             <img class="logo-mark" src="/assets/logo-mark.svg" alt="BellaOS" />
             <div>
               <div class="logo-title">BellaOS</div>
-              <div class="logo-subtitle">Sistema completo para salões</div>
+              <div class="logo-subtitle">Gestão para salões</div>
             </div>
           </div>
-          <h1>Entrar</h1>
-          <p>Acesse a agenda, clientes, serviços, financeiro e estoque do salão.</p>
+          <h1>Acesse sua conta</h1>
+          <p>Entre para gerenciar a agenda e o salão.</p>
           <form onsubmit="Bella.login(event)">
             <div class="field">
               <label>E-mail</label>
-              <input name="email" type="email" autocomplete="email" placeholder="contato@studiobella.com" required />
+              <input name="email" type="email" autocomplete="email" placeholder="seuemail@salao.com.br" required />
             </div>
             <div class="field">
               <label>Senha</label>
@@ -341,13 +409,6 @@
             </div>
             <button class="btn brand full" type="submit">Entrar</button>
           </form>
-          <div class="demo-credentials">
-            <strong>Contas para testar</strong><br>
-            Salão: contato@studiobella.com / bella123<br>
-            Primeiro login: primeiro@studiobella.com / trocar123<br>
-            Demo bloqueada: demo@bellaos.com / demo123<br>
-            Admin: admin@bellaos.com / admin123
-          </div>
         </section>
       </main>
     `;
@@ -365,7 +426,7 @@
             </div>
           </div>
           <h1>Crie uma nova senha</h1>
-          <p>Por segurança, o primeiro acesso exige a troca da senha temporária antes de abrir o painel.</p>
+          <p>Crie sua senha definitiva para acessar o painel.</p>
           <form onsubmit="Bella.changePassword(event)">
             <div class="field">
               <label>Nova senha</label>
@@ -401,7 +462,7 @@
             <img src="/assets/logo-mark.svg" alt="BellaOS" />
             <div>
               <div class="topbar-title">${esc(salon.name)}</div>
-              <div class="topbar-subtitle">${esc(viewLabels[state.view] || 'BellaOS')} ${isDemo() ? '· Conta teste' : ''}</div>
+              <div class="topbar-subtitle">${esc(viewLabels[state.view] || 'BellaOS')}</div>
             </div>
           </div>
           <button class="icon-btn" aria-label="Sair" onclick="Bella.logout()">↗</button>
@@ -732,7 +793,7 @@
   }
 
   function renderOnline(user, salon) {
-    const link = `${window.location.origin}/agenda/${salon.slug}`;
+    const link = bookingUrl(salon.slug);
     return `
       <section class="header">
         <div class="eyebrow">Agenda online</div>
@@ -919,8 +980,8 @@
     app.innerHTML = `
       <main class="booking-shell">
         <section class="public-hero">
-          <div class="public-hero-logo"><img src="/assets/logo-mark.svg" alt="BellaOS"><div><div class="logo-title" style="font-size:26px">BellaOS</div><div class="logo-subtitle">Agenda online</div></div></div>
-          <h1>Agende seu horário no ${esc(salon.name)}</h1>
+          <div class="public-hero-logo"><img src="${esc(salon.logoUrl || '/assets/logo-mark.svg')}" alt="${esc(salon.name)}"><div><div class="logo-title public-brand">${esc(salon.name)}</div><div class="logo-subtitle">Agenda online</div></div></div>
+          <h1>Agende seu horário</h1>
           <p>${esc(salon.address || '')}<br>Escolha serviços, profissional, data e horário disponível.</p>
         </section>
         ${enabled ? '' : `<div class="card danger"><div class="card-title">Agenda indisponível</div><div class="card-sub">Este salão pausou os agendamentos online.</div></div>`}
@@ -1015,7 +1076,7 @@
         </div>
         <section class="section"><h2>Salões cadastrados</h2><button class="btn small brand" onclick="Bella.openAdminCreateSalon()">Novo salão</button></section>
         <div class="list">
-          ${salons.map(s => `<article class="item"><div class="avatar">${initials(s.name)}</div><div class="item-main"><div class="item-title">${esc(s.name)} <span class="badge ${s.status === 'ativo' ? 'success' : 'danger'}">${esc(s.status)}</span></div><div class="item-meta">/${esc(s.slug)} · ${esc(s.plan)} · ${esc(s.whatsapp)}</div><div class="actions" style="margin-top:10px"><button class="btn small secondary" onclick="Bella.toggleSalonStatus('${s.id}')">${s.status === 'ativo' ? 'Bloquear' : 'Ativar'}</button><button class="btn small secondary" onclick="Bella.copyText('${window.location.origin}/agenda/${s.slug}')">Copiar agenda</button></div></div></article>`).join('')}
+          ${salons.map(s => `<article class="item"><div class="avatar">${initials(s.name)}</div><div class="item-main"><div class="item-title">${esc(s.name)} <span class="badge ${s.status === 'ativo' ? 'success' : 'danger'}">${esc(s.status)}</span></div><div class="item-meta">/${esc(s.slug)} · ${esc(s.plan)} · ${esc(s.whatsapp)}</div><div class="actions" style="margin-top:10px"><button class="btn small secondary" onclick="Bella.toggleSalonStatus('${s.id}')">${s.status === 'ativo' ? 'Bloquear' : 'Ativar'}</button><button class="btn small secondary" onclick="Bella.copyText('${bookingUrl(s.slug)}')">Copiar agenda</button></div></div></article>`).join('')}
         </div>
       </main>
     `;
@@ -1222,12 +1283,12 @@
 
   function copyBookingLink() {
     const salon = currentSalon();
-    copyText(`${window.location.origin}/agenda/${salon.slug}`);
+    copyText(bookingUrl(salon.slug));
   }
-  function openBookingLink() { const salon = currentSalon(); window.open(`/agenda/${salon.slug}`, '_blank'); }
+  function openBookingLink() { const salon = currentSalon(); window.open(bookingUrl(salon.slug), '_blank'); }
   function shareBookingLink() {
     const salon = currentSalon();
-    const link = `${window.location.origin}/agenda/${salon.slug}`;
+    const link = bookingUrl(salon.slug);
     window.open(`https://wa.me/?text=${encodeURIComponent(`Agende seu horário no ${salon.name}: ${link}`)}`, '_blank');
   }
   function copyText(text) {
@@ -1333,5 +1394,6 @@
   };
 
   window.addEventListener('popstate', render);
+  startRemoteSync();
   render();
 })();

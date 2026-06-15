@@ -211,6 +211,31 @@ create table if not exists admin_logs (
   created_at timestamptz default now()
 );
 
+
+-- Tabela de sincronização rápida da versão estática.
+-- Ela mantém o estado do app em JSON para permitir uso imediato no Vercel.
+-- Para produção robusta, migre gradualmente para as tabelas relacionais acima com Supabase Auth e RLS por salão.
+create table if not exists bellaos_state (
+  id text primary key,
+  payload jsonb not null default '{}'::jsonb,
+  updated_at timestamptz default now()
+);
+
+alter table bellaos_state enable row level security;
+
+drop policy if exists bellaos_state_select on bellaos_state;
+drop policy if exists bellaos_state_insert on bellaos_state;
+drop policy if exists bellaos_state_update on bellaos_state;
+
+create policy bellaos_state_select on bellaos_state
+  for select using (true);
+
+create policy bellaos_state_insert on bellaos_state
+  for insert with check (true);
+
+create policy bellaos_state_update on bellaos_state
+  for update using (true) with check (true);
+
 -- RLS sugerido
 alter table salons enable row level security;
 alter table profiles enable row level security;

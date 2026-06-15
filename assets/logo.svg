@@ -1,12 +1,14 @@
-<svg width="720" height="220" viewBox="0 0 720 220" fill="none" xmlns="http://www.w3.org/2000/svg">
-  <rect width="720" height="220" rx="42" fill="#FAF7F2"/>
-  <g transform="translate(55 38)">
-    <rect x="0" y="0" width="144" height="144" rx="38" fill="#2B2523"/>
-    <path d="M43 104V39h37c17.8 0 29.1 8.5 29.1 22.8 0 8.4-4.6 15.4-12 18.8 9.9 3.1 16.2 10.8 16.2 21 0 15.4-12.2 25.4-31.5 25.4H43Zm21.4-39.2h14.8c5.5 0 8.7-2.7 8.7-7.3s-3.2-7.2-8.7-7.2H64.4v14.5Zm0 38.6h17.5c6.2 0 9.7-3 9.7-8s-3.5-8.1-9.7-8.1H64.4v16.1Z" fill="#FAF7F2"/>
-    <path d="M30 121c31-3 52-15 68-36 13-17 23-30 46-32" stroke="#C89B7B" stroke-width="10" stroke-linecap="round"/>
-    <path d="M20 132c37-2 64-12 85-35" stroke="#E8DDD4" stroke-width="4" stroke-linecap="round" opacity=".75"/>
+<svg width="420" height="120" viewBox="0 0 420 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="420" height="120" rx="32" fill="#FAF7F2"/>
+  <g transform="translate(34 24) scale(.45)">
+    <rect x="8" y="8" width="144" height="144" rx="44" fill="#FAF7F2" stroke="#E8DDD4" stroke-width="4"/>
+    <path d="M103.5 42.5C87.8 33.1 66.1 35.7 53.3 49.2C40.1 63.1 38.9 84.1 50.7 99.2C60.9 112.3 79.7 116.4 95.1 109.1" stroke="#2B2523" stroke-width="8" stroke-linecap="round"/>
+    <path d="M99 44C110.4 51.6 116.9 64 117.2 77.3C117.5 94.7 106.7 111.1 90.4 117.7" stroke="#C89B7B" stroke-width="8" stroke-linecap="round"/>
+    <path d="M56 103C72 100.5 85.6 92.7 96 79.8" stroke="#8B5E4E" stroke-width="5" stroke-linecap="round"/>
+    <path d="M59 122C75.4 121.8 89.7 117.3 102.6 108.2" stroke="#C89B7B" stroke-width="4" stroke-linecap="round" opacity=".8"/>
+    <circle cx="67" cy="70" r="4" fill="#2B2523"/>
   </g>
-  <text x="230" y="104" fill="#2B2523" font-family="Inter, Avenir, Helvetica, Arial, sans-serif" font-size="58" font-weight="800" letter-spacing="-2">BellaOS</text>
-  <text x="234" y="142" fill="#8A7F78" font-family="Inter, Avenir, Helvetica, Arial, sans-serif" font-size="22" font-weight="500">Gestão premium para salões de beleza</text>
-  <path d="M235 162H520" stroke="#C89B7B" stroke-width="5" stroke-linecap="round"/>
+  <text x="126" y="62" fill="#2B2523" font-family="Inter, Avenir, Helvetica, Arial, sans-serif" font-size="34" font-weight="760" letter-spacing="-.7">BellaOS</text>
+  <text x="128" y="84" fill="#8A7F78" font-family="Inter, Avenir, Helvetica, Arial, sans-serif" font-size="13" font-weight="520">gestão para salões</text>
+  <path d="M128 94H246" stroke="#C89B7B" stroke-width="3" stroke-linecap="round" opacity=".8"/>
 </svg>
