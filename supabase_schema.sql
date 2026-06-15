@@ -261,6 +261,7 @@ alter table service_products enable row level security;
 alter table professionals enable row level security;
 alter table professional_services enable row level security;
 alter table professional_weekly_schedules enable row level security;
+alter table schedule_exceptions enable row level security;
 alter table clients enable row level security;
 alter table client_hair_history enable row level security;
 alter table appointments enable row level security;

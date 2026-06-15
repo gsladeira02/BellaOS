@@ -151,8 +151,47 @@
     return '';
   }
 
-  function scheduleForDate(professional, date) {
+  function dateException(salonId, date, scope = 'salon', professionalId = '') {
+    const db = getDb();
+    return (db.scheduleExceptions || []).find(x =>
+      x.salonId === salonId &&
+      x.date === date &&
+      x.scope === scope &&
+      (scope === 'salon' || x.professionalId === professionalId)
+    ) || null;
+  }
+
+  function exceptionToSchedule(exception) {
+    if (!exception || exception.closed) return null;
+    return {
+      active: true,
+      start: exception.start || '09:00',
+      end: exception.end || '18:00',
+      breakStart: exception.breakStart || '',
+      breakEnd: exception.breakEnd || ''
+    };
+  }
+
+  function salonHoursForDate(salon, date) {
+    const exception = dateException(salon.id, date, 'salon');
+    if (exception?.closed) return null;
+    if (exception) return exceptionToSchedule(exception);
+    return {
+      active: true,
+      start: salon.openingStart || '09:00',
+      end: salon.openingEnd || '19:00',
+      breakStart: '',
+      breakEnd: ''
+    };
+  }
+
+  function scheduleForDate(professional, date, salonId = professional?.salonId) {
     if (!professional?.active) return null;
+    const salonException = salonId ? dateException(salonId, date, 'salon') : null;
+    if (salonException?.closed) return null;
+    const professionalException = salonId ? dateException(salonId, date, 'professional', professional.id) : null;
+    if (professionalException?.closed) return null;
+    if (professionalException) return exceptionToSchedule(professionalException);
     const day = new Date(date + 'T00:00:00').getDay();
     const schedule = normalizedWeeklySchedule(professional)[day];
     return schedule?.active ? schedule : null;
@@ -295,7 +334,10 @@
         { id: 'fin_1', salonId, type: 'receita', date: addDaysISO(-2), description: 'Luzes / Mechas - Juliana Martins', amount: 390, payment: 'Pix', appointmentId: 'app_4' },
         { id: 'fin_2', salonId, type: 'despesa', date: addDaysISO(-3), description: 'Compra de produtos', amount: 220, payment: 'Pix' }
       ],
-      logs: []
+      logs: [],
+      scheduleExceptions: [
+        { id: 'exc_demo', salonId, date: addDaysISO(7), scope: 'salon', professionalId: '', closed: false, start: '09:00', end: '13:00', breakStart: '', breakEnd: '', reason: 'Funcionamento especial pela manhã' }
+      ]
     };
     localStorage.setItem(DB_KEY, JSON.stringify(db));
     scheduleRemoteSave(db);
@@ -309,7 +351,7 @@
       const parsed = JSON.parse(raw);
       const required = ['salons','users','services','professionals','clients','appointments','products','financial'];
       if (!required.every(k => Array.isArray(parsed[k]))) return seedDb();
-      ['hairHistory','stockMovements','logs','categories'].forEach(k => { if (!Array.isArray(parsed[k])) parsed[k] = []; });
+      ['hairHistory','stockMovements','logs','categories','scheduleExceptions'].forEach(k => { if (!Array.isArray(parsed[k])) parsed[k] = []; });
       parsed.professionals.forEach(p => { if (!p.weeklySchedule) p.weeklySchedule = normalizedWeeklySchedule(p); });
       return parsed;
     } catch (e) {
@@ -404,7 +446,8 @@
       appointments: db.appointments.filter(x => x.salonId === salonId),
       products: db.products.filter(x => x.salonId === salonId),
       financial: db.financial.filter(x => x.salonId === salonId),
-      hairHistory: db.hairHistory.filter(x => x.salonId === salonId)
+      hairHistory: db.hairHistory.filter(x => x.salonId === salonId),
+      scheduleExceptions: (db.scheduleExceptions || []).filter(x => x.salonId === salonId)
     };
   }
 
@@ -939,6 +982,8 @@
   }
 
   function renderSettings(user, salon) {
+    const { scheduleExceptions, professionals } = salonData(salon.id);
+    const exceptions = scheduleExceptions.slice().sort((a,b) => a.date.localeCompare(b.date));
     return `
       <section class="header">
         <div class="eyebrow">Configurações</div>
@@ -960,6 +1005,16 @@
         <div class="switch-row"><div><span>Agenda pública ativa</span><small>Quando desativada, ninguém consegue marcar pelo link.</small></div><input class="checkbox" name="bookingEnabled" type="checkbox" ${salon.bookingEnabled ? 'checked' : ''}></div>
         <button class="btn brand full" type="submit">Salvar configurações</button>
       </form>
+
+      <section class="section"><h2>Exceções de agenda</h2><button class="btn small secondary" onclick="Bella.openModal('scheduleException')">Adicionar</button></section>
+      <div class="list">
+        ${exceptions.length ? exceptions.map(e => {
+          const pro = professionals.find(p => p.id === e.professionalId);
+          const scope = e.scope === 'professional' ? `Profissional: ${esc(pro?.name || 'não encontrada')}` : 'Salão inteiro';
+          const status = e.closed ? 'Fechado' : `${esc(e.start)} às ${esc(e.end)}${e.breakStart && e.breakEnd ? ` · intervalo ${esc(e.breakStart)} às ${esc(e.breakEnd)}` : ''}`;
+          return `<article class="item"><div class="avatar">${brDate(e.date).slice(0,5)}</div><div class="item-main"><div class="item-title">${brDate(e.date)} · ${scope}</div><div class="item-meta">${status}${e.reason ? `<br>${esc(e.reason)}` : ''}</div></div><button class="btn small secondary" onclick="Bella.openModal('scheduleException',{exceptionId:'${e.id}'})">Editar</button></article>`;
+        }).join('') : `<div class="empty">Nenhuma exceção cadastrada. Use para feriados, eventos ou dias com funcionamento especial.</div>`}
+      </div>
     `;
   }
 
@@ -971,6 +1026,7 @@
       professional: modalProfessional,
       financial: modalFinancial,
       product: modalProduct,
+      scheduleException: modalScheduleException,
       clientDetail: modalClientDetail
     }[type.name || type]?.(type) || '';
     return `<div class="modal-backdrop" onclick="Bella.closeModal(event)"><section class="modal" onclick="event.stopPropagation()">${content}</section></div>`;
@@ -1092,6 +1148,37 @@
         <div class="switch-row"><div><span>Profissional ativa</span><small>Profissionais inativas não recebem novos agendamentos online.</small></div><input class="checkbox" name="active" type="checkbox" ${p?.active !== false ? 'checked' : ''}></div>
         <button class="btn brand full" type="submit">${isEdit ? 'Salvar alterações' : 'Cadastrar profissional'}</button>
         ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteProfessional('${p.id}')">Excluir profissional</button>` : ''}
+      </form>`;
+  }
+
+  function modalScheduleException(payload = {}) {
+    const salon = currentSalon();
+    const { professionals, scheduleExceptions } = salonData(salon.id);
+    const e = scheduleExceptions.find(x => x.id === payload.exceptionId);
+    const isEdit = Boolean(e);
+    const scope = e?.scope || 'salon';
+    return `${modalHeader(isEdit ? 'Editar exceção de agenda' : 'Nova exceção de agenda')}
+      <form onsubmit="Bella.saveScheduleException(event, '${e?.id || ''}')">
+        <div class="field"><label>Data</label><input name="date" type="date" value="${esc(e?.date || todayISO())}" required /></div>
+        <div class="field"><label>Aplicar em</label><select name="scope" onchange="Bella.toggleExceptionScope(this.value)">
+          <option value="salon" ${scope === 'salon' ? 'selected' : ''}>Salão inteiro</option>
+          <option value="professional" ${scope === 'professional' ? 'selected' : ''}>Uma profissional específica</option>
+        </select></div>
+        <div class="field exception-professional" style="${scope === 'professional' ? '' : 'display:none'}"><label>Profissional</label><select name="professionalId">
+          ${professionals.map(p => `<option value="${p.id}" ${e?.professionalId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+        </select></div>
+        <div class="switch-row"><div><span>Fechar neste dia</span><small>Se ativar, nenhum horário será exibido para esta data.</small></div><input class="checkbox" name="closed" type="checkbox" ${e?.closed ? 'checked' : ''}></div>
+        <div class="field-row">
+          <div class="field"><label>Abre</label><input name="start" type="time" value="${esc(e?.start || '09:00')}" /></div>
+          <div class="field"><label>Fecha</label><input name="end" type="time" value="${esc(e?.end || '13:00')}" /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Intervalo início</label><input name="breakStart" type="time" value="${esc(e?.breakStart || '')}" /></div>
+          <div class="field"><label>Intervalo fim</label><input name="breakEnd" type="time" value="${esc(e?.breakEnd || '')}" /></div>
+        </div>
+        <div class="field"><label>Motivo/observação</label><input name="reason" value="${esc(e?.reason || '')}" placeholder="Ex: feriado, evento, manutenção..." /></div>
+        <button class="btn brand full" type="submit">Salvar exceção</button>
+        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteScheduleException('${e.id}')">Excluir exceção</button>` : ''}
       </form>`;
   }
 
@@ -1442,10 +1529,17 @@
   }
 
   function isProfessionalSegmentAvailable({ salon, professional, date, startMin, endMin, appointments }) {
-    const schedule = scheduleForDate(professional, date);
+    const salonHours = salonHoursForDate(salon, date);
+    if (!salonHours) return false;
+    const schedule = scheduleForDate(professional, date, salon.id);
     if (!schedule) return false;
-    if (startMin < Math.max(timeToMin(salon.openingStart), timeToMin(schedule.start))) return false;
-    if (endMin > Math.min(timeToMin(salon.openingEnd), timeToMin(schedule.end))) return false;
+    if (startMin < Math.max(timeToMin(salonHours.start), timeToMin(schedule.start))) return false;
+    if (endMin > Math.min(timeToMin(salonHours.end), timeToMin(schedule.end))) return false;
+    if (salonHours.breakStart && salonHours.breakEnd) {
+      const breakStart = timeToMin(salonHours.breakStart);
+      const breakEnd = timeToMin(salonHours.breakEnd);
+      if (startMin < breakEnd && endMin > breakStart) return false;
+    }
     if (schedule.breakStart && schedule.breakEnd) {
       const breakStart = timeToMin(schedule.breakStart);
       const breakEnd = timeToMin(schedule.breakEnd);
@@ -1464,8 +1558,10 @@
     const advance = multiServiceAdvance(items, services, salon);
     const minDate = new Date(Date.now() + advance * 60000);
     const slots = [];
-    const salonStart = timeToMin(salon.openingStart);
-    const salonEnd = timeToMin(salon.openingEnd);
+    const salonHours = salonHoursForDate(salon, date);
+    if (!salonHours) return [];
+    const salonStart = timeToMin(salonHours.start);
+    const salonEnd = timeToMin(salonHours.end);
     for (let m = salonStart; m + totalDuration <= salonEnd; m += 30) {
       const t = minToTime(m);
       const startDate = new Date(`${date}T${t}:00`);
@@ -2048,6 +2144,63 @@
     }, 120);
   }
 
+  function toggleExceptionScope(value) {
+    const el = document.querySelector('.exception-professional');
+    if (el) el.style.display = value === 'professional' ? '' : 'none';
+  }
+
+  function saveScheduleException(event, exceptionId = '') {
+    event.preventDefault();
+    if (!canEdit()) return;
+    const salon = currentSalon();
+    const data = new FormData(event.target);
+    const scope = String(data.get('scope') || 'salon');
+    const closed = data.has('closed');
+    const item = {
+      id: exceptionId || uid('exc'),
+      salonId: salon.id,
+      date: String(data.get('date') || todayISO()),
+      scope,
+      professionalId: scope === 'professional' ? String(data.get('professionalId') || '') : '',
+      closed,
+      start: String(data.get('start') || '09:00'),
+      end: String(data.get('end') || '18:00'),
+      breakStart: String(data.get('breakStart') || ''),
+      breakEnd: String(data.get('breakEnd') || ''),
+      reason: String(data.get('reason') || '').trim()
+    };
+    if (item.date < todayISO()) return toast('Escolha uma data atual ou futura.');
+    if (item.scope === 'professional' && !item.professionalId) return toast('Escolha uma profissional.');
+    if (!item.closed) {
+      if (timeToMin(item.start) >= timeToMin(item.end)) return toast('O horário de abertura precisa ser antes do fechamento.');
+      if (item.breakStart && item.breakEnd) {
+        if (timeToMin(item.breakStart) >= timeToMin(item.breakEnd)) return toast('Revise o horário do intervalo.');
+        if (timeToMin(item.breakStart) < timeToMin(item.start) || timeToMin(item.breakEnd) > timeToMin(item.end)) return toast('O intervalo precisa ficar dentro do horário de funcionamento.');
+      }
+    }
+    const db = getDb();
+    db.scheduleExceptions = db.scheduleExceptions || [];
+    const duplicate = db.scheduleExceptions.find(x => x.id !== item.id && x.salonId === item.salonId && x.date === item.date && x.scope === item.scope && (item.scope === 'salon' || x.professionalId === item.professionalId));
+    if (duplicate) return toast('Já existe uma exceção para essa data e escopo. Edite a existente.');
+    const idx = db.scheduleExceptions.findIndex(x => x.id === item.id);
+    if (idx >= 0) db.scheduleExceptions[idx] = item;
+    else db.scheduleExceptions.push(item);
+    saveDb(db);
+    state.modal = null;
+    toast('Exceção de agenda salva.');
+    render();
+  }
+
+  function deleteScheduleException(exceptionId) {
+    if (!canEdit() || !confirm('Excluir esta exceção de agenda?')) return;
+    const db = getDb();
+    db.scheduleExceptions = (db.scheduleExceptions || []).filter(x => x.id !== exceptionId);
+    saveDb(db);
+    state.modal = null;
+    toast('Exceção excluída.');
+    render();
+  }
+
   function addHairHistoryPrompt(clientId) {
     if (!canEdit()) return;
     const service = prompt('Serviço realizado:', 'Coloração');
@@ -2093,7 +2246,7 @@
 
   window.Bella = {
     login, changePassword, logout, navigate, openModal, closeModal, setDate, setClientSearch, setServiceFilter,
-    updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, deleteClient, deleteService, deleteProfessional, saveFinancial, saveProduct,
+    updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, deleteClient, deleteService, deleteProfessional, saveFinancial, saveProduct, saveScheduleException, deleteScheduleException, toggleExceptionScope,
     adjustStock, saveSettings, copyBookingLink, openBookingLink, shareBookingLink, copyText, togglePublicService, setPublicItemDraft, addPublicItem, removePublicItem,
     setAppointmentItemDraft, addAppointmentItem, removeAppointmentItem,
     setPublic, setAppointmentDraft, toggleAppointmentService, confirmPublicBooking, openClient, addHairHistoryPrompt, toast, goLogin, toggleSalonStatus, openAdminCreateSalon

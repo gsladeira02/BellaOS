@@ -177,3 +177,24 @@ O agendamento com múltiplos serviços agora procura automaticamente a melhor se
 - maquiagem, penteado e noiva sempre no final da sequência.
 
 A cliente escolhe os serviços e o horário de início. O BellaOS só mostra horários em que todos os serviços conseguem ser encaixados corretamente na agenda das profissionais responsáveis.
+
+## Atualização: exceções de agenda por data
+
+Agora o BellaOS permite alterar a agenda em um dia específico, sem mexer na rotina semanal da profissional.
+
+Em **Configurações > Exceções de agenda**, é possível cadastrar:
+
+- fechamento do salão inteiro em uma data específica;
+- funcionamento especial do salão, por exemplo apenas de manhã;
+- fechamento de uma profissional específica em um dia;
+- horário especial de uma profissional em uma data;
+- intervalo especial para esse dia.
+
+Exemplos de uso:
+
+- feriado: salão fechado;
+- véspera de feriado: salão abre de 09:00 às 13:00;
+- profissional com compromisso: atende apenas de 14:00 às 18:00;
+- manutenção: bloquear uma data inteira.
+
+A agenda pública e a agenda interna respeitam essas exceções automaticamente no cálculo dos horários disponíveis, inclusive em atendimentos com múltiplos serviços e profissionais diferentes.
