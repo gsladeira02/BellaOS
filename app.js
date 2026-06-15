@@ -132,7 +132,7 @@
       users: [
         { id: 'u_owner', salonId, name: 'Dona do Studio Bella', email: 'contato@studiobella.com', password: 'bella123', role: 'owner', mustChangePassword: false, isDemo: false },
         { id: 'u_first', salonId, name: 'Primeiro Acesso', email: 'primeiro@studiobella.com', password: 'trocar123', role: 'owner', mustChangePassword: true, isDemo: false },
-        { id: 'u_demo', salonId, name: 'Conta Demonstração', email: 'demo@bellaos.com', password: 'demo123', role: 'owner', mustChangePassword: false, isDemo: true },
+        { id: 'u_demo', salonId, name: 'Conta Demonstração', email: 'demo@bellaos.com', password: 'demo123', role: 'owner', mustChangePassword: false, isDemo: false },
         { id: 'u_admin', salonId: null, name: 'Admin BellaOS', email: 'admin@bellaos.com', password: 'admin123', role: 'super_admin', mustChangePassword: false, isDemo: false }
       ],
       categories: [
@@ -304,10 +304,6 @@
   }
 
   function canEdit() {
-    if (isDemo()) {
-      toast('Esta é uma conta teste. As alterações estão bloqueadas.');
-      return false;
-    }
     return true;
   }
 
@@ -1068,7 +1064,7 @@
     const active = salons.filter(s => s.status === 'ativo').length;
     app.innerHTML = `
       <main class="admin-shell">
-        <header class="section"><div><div class="eyebrow">Painel administrativo</div><h1 style="margin:.2em 0">BellaOS</h1><p class="card-sub">Gerencie salões, planos, status, contas teste e métricas gerais.</p></div><button class="btn secondary" onclick="Bella.logout()">Sair</button></header>
+        <header class="section"><div><div class="eyebrow">Painel administrativo</div><h1 style="margin:.2em 0">BellaOS</h1><p class="card-sub">Gerencie salões, planos, status, demonstrações e métricas gerais.</p></div><button class="btn secondary" onclick="Bella.logout()">Sair</button></header>
         <div class="admin-grid">
           <div class="admin-card"><div class="stat-label">Salões ativos</div><div class="stat-number">${active}</div></div>
           <div class="admin-card"><div class="stat-label">Agendamentos</div><div class="stat-number">${totalAppointments}</div></div>

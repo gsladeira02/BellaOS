@@ -7,9 +7,9 @@ Sistema mobile-first para salões de beleza femininos, inspirado nos padrões do
 - Logo BellaOS redesenhada em SVG, mais limpa e discreta.
 - Login limpo, sem credenciais ou mensagens internas na tela.
 - Troca obrigatória de senha no primeiro login.
-- Conta demo bloqueada.
+- Conta de demonstração liberada para testes.
 - Agenda interna.
-- Link público de agendamento por slug: `/agenda/nomedoslão`.
+- Link público de agendamento por slug: `/agenda/nomedosalão`.
 - Link de compartilhamento já ajustado para `https://os-bella.vercel.app/agenda/...`.
 - Antecedência mínima global e por serviço.
 - Agendamento com múltiplos serviços.
@@ -55,10 +55,10 @@ E-mail: `primeiro@studiobella.com`
 Senha: `trocar123`  
 Ao entrar, o sistema exige a criação de uma nova senha.
 
-### Conta demo bloqueada
+### Conta de demonstração liberada
 E-mail: `demo@bellaos.com`  
 Senha: `demo123`  
-Pode navegar, mas não pode criar, editar ou excluir dados.
+Pode navegar, criar, editar, cancelar e testar os módulos normalmente.
 
 ### Admin BellaOS
 E-mail: `admin@bellaos.com`  
@@ -102,3 +102,7 @@ bellaos-completo/
 - Cores: edite as variáveis no início do `styles.css`.
 - Dados iniciais: edite a função `seedDb()` no `app.js`.
 - Logo: edite os SVGs em `/assets`.
+
+
+## Observação sobre demonstração
+A conta de demonstração não possui bloqueio de ações. Ela pode criar, editar, cancelar e testar os módulos normalmente.
