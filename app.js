@@ -19,8 +19,9 @@
     serviceFilter: 'Todos',
     clientSearch: '',
     publicBooking: {
-      selectedServices: [],
-      professionalId: 'any',
+      items: [],
+      draftProfessionalId: '',
+      draftServiceId: '',
       date: todayISO(),
       time: '',
       clientName: '',
@@ -28,8 +29,9 @@
       notes: ''
     },
     appointmentDraft: {
-      professionalId: '',
-      selectedServices: [],
+      items: [],
+      draftProfessionalId: '',
+      draftServiceId: '',
       date: todayISO(),
       time: ''
     }
@@ -575,10 +577,11 @@
       <article class="item">
         <div class="avatar">${initials(client?.name || 'Cliente')}</div>
         <div class="item-main">
-          <div class="item-title">${esc(a.start)} · ${esc(client?.name || 'Cliente')} ${appointmentStatusBadge(a.status)}</div>
+          <div class="item-title">${esc(a.start)} · ${esc(client?.name || 'Cliente')} ${appointmentStatusBadge(a.status)} ${a.groupTotal > 1 ? `<span class="badge muted">${a.groupIndex}/${a.groupTotal}</span>` : ''}</div>
           <div class="item-meta">
             ${esc(serviceName(a.serviceIds, services))}<br>
             Profissional: ${esc(pro?.name || 'Não definida')} · ${money(a.total)} · ${a.duration} min
+            ${a.groupTotal > 1 ? `<br>Atendimento combinado` : ''}
             ${a.notes ? `<br>Obs: ${esc(a.notes)}` : ''}
           </div>
           ${compact ? '' : `<div class="actions" style="margin-top:10px">
@@ -878,29 +881,51 @@
 
   function modalAppointment() {
     const salon = currentSalon();
-    const { clients, professionals } = salonData(salon.id);
+    const { clients, professionals, services } = salonData(salon.id);
     const draft = ensureAppointmentDraft(salon.id);
-    const availableServices = getActiveServicesForProfessional(salon.id, draft.professionalId);
     const activePros = professionals.filter(p => p.active);
-    const slots = getAvailableSlots(salon.id, draft.selectedServices, draft.professionalId, draft.date);
-    const selectedServices = draft.selectedServices;
-    return `${modalHeader('Novo agendamento')}
+    const selectedPro = activePros.find(p => p.id === draft.draftProfessionalId) || activePros[0];
+    if (selectedPro && draft.draftProfessionalId !== selectedPro.id) draft.draftProfessionalId = selectedPro.id;
+    const availableServices = getActiveServicesForProfessional(salon.id, draft.draftProfessionalId);
+    if (availableServices.length && !availableServices.some(s => s.id === draft.draftServiceId)) draft.draftServiceId = availableServices[0].id;
+    if (!availableServices.length) draft.draftServiceId = '';
+    const slots = getMultiAvailableSlots(salon.id, draft.items, draft.date);
+    const total = multiServiceTotal(draft.items, services);
+    const duration = multiServiceDuration(draft.items, services, salon);
+    return `${modalHeader('Novo atendimento')}
       <form onsubmit="Bella.saveAppointment(event)">
         <div class="field"><label>Cliente</label><select name="clientId" required>${clients.map(c => `<option value="${c.id}">${esc(c.name)} · ${esc(c.phone)}</option>`).join('')}</select></div>
-        <div class="field"><label>Profissional</label><select name="professionalId" required onchange="Bella.setAppointmentDraft('professionalId', this.value)">
-          ${activePros.length ? activePros.map(p => `<option value="${p.id}" ${draft.professionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Cadastre uma profissional ativa</option>`}
-        </select><small>Os serviços abaixo mudam de acordo com a profissional escolhida.</small></div>
-        <div class="field"><label>Serviços da profissional</label><div class="service-picker">
-          ${availableServices.length ? availableServices.map(s => `<label class="service-option ${selectedServices.includes(s.id) ? 'selected' : ''}"><input type="checkbox" name="services" value="${s.id}" ${selectedServices.includes(s.id) ? 'checked' : ''} onchange="Bella.toggleAppointmentService('${s.id}')"><div><strong>${esc(s.name)}</strong><div class="card-sub">${money(s.price)} · ${s.duration} min · antecedência ${formatAdvance(Math.max(s.minAdvanceMinutes, salon.minAdvanceMinutes))}</div></div></label>`).join('') : `<div class="empty">Esta profissional ainda não possui serviços ativos vinculados.</div>`}
-        </div></div>
+
+        <div class="card" style="margin-bottom:14px">
+          <div class="card-title">Adicionar serviço ao atendimento</div>
+          <div class="card-sub" style="margin-bottom:12px">Escolha a profissional e veja apenas os serviços que ela realiza. Você pode adicionar serviços com profissionais diferentes.</div>
+          <div class="field"><label>Profissional</label><select onchange="Bella.setAppointmentItemDraft('professionalId', this.value)">
+            ${activePros.length ? activePros.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Cadastre uma profissional ativa</option>`}
+          </select></div>
+          <div class="field"><label>Serviço</label><select onchange="Bella.setAppointmentItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
+            ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${draft.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)} · ${money(s.price)} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço disponível</option>`}
+          </select></div>
+          <button class="btn secondary full" type="button" onclick="Bella.addAppointmentItem()" ${(!draft.draftProfessionalId || !draft.draftServiceId) ? 'disabled' : ''}>Adicionar serviço</button>
+        </div>
+
+        <div class="field"><label>Serviços escolhidos</label>
+          <div class="list">
+            ${draft.items.length ? draft.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'appointment')).join('') : `<div class="empty">Nenhum serviço adicionado ainda.</div>`}
+          </div>
+        </div>
+
         <div class="field"><label>Data</label><input name="date" type="date" min="${todayISO()}" value="${esc(draft.date)}" required onchange="Bella.setAppointmentDraft('date', this.value)" /></div>
-        <div class="field"><label>Horário disponível</label>
+        <div class="field"><label>Horário inicial disponível</label>
           <div class="slots">${slots.length ? slots.map(t => `<button type="button" class="slot ${draft.time === t ? 'active' : ''}" onclick="Bella.setAppointmentDraft('time','${t}')">${t}</button>`).join('') : `<button type="button" class="slot" disabled>Sem horários</button>`}</div>
           <input type="hidden" name="start" value="${esc(draft.time)}" required />
-          <small>${draft.selectedServices.length ? 'Selecione um dos horários disponíveis.' : 'Escolha pelo menos um serviço para ver os horários.'}</small>
+          <small>${draft.items.length ? 'O sistema agenda cada serviço em sequência, na agenda da profissional escolhida.' : 'Adicione pelo menos um serviço para ver os horários.'}</small>
         </div>
-        <div class="field"><label>Observações</label><textarea name="notes" placeholder="Preferências, sinal pago, fórmula, etc."></textarea></div>
-        <button class="btn brand full" type="submit" ${(!draft.time || !draft.selectedServices.length || !draft.professionalId) ? 'disabled' : ''}>Salvar agendamento</button>
+        <div class="summary-box">
+          <strong>${draft.items.length ? money(total) : 'Monte o atendimento'}</strong>
+          <small>${draft.items.length ? `${draft.items.length} serviço(s) · duração estimada ${duration} min` : 'O resumo aparecerá aqui.'}</small>
+        </div>
+        <div class="field" style="margin-top:14px"><label>Observações</label><textarea name="notes" placeholder="Preferências, sinal pago, fórmula, etc."></textarea></div>
+        <button class="btn brand full" type="submit" ${(!draft.time || !draft.items.length) ? 'disabled' : ''}>Salvar atendimento</button>
       </form>`;
   }
 
@@ -1009,77 +1034,68 @@
   }
 
   function renderPublicBooking(slug) {
-    const db = getDb();
     const salon = salonBySlug(slug);
     if (!salon) {
-      app.innerHTML = `<main class="booking-shell"><section class="public-hero"><img class="logo-mark" src="/assets/logo-mark.svg"><h1>Agenda não encontrada</h1><p>Confira se o link do salão está correto.</p><button class="btn full secondary" onclick="Bella.goLogin()">Voltar</button></section></main>`;
+      app.innerHTML = `<main class="booking-shell"><section class="public-hero"><h1>Agenda não encontrada</h1><p>Confira se o link está correto.</p><button class="btn full" onclick="Bella.goLogin()">Voltar</button></section></main>`;
       return;
     }
     const { services, professionals } = salonData(salon.id);
+    ensurePublicBookingState(salon.id);
+    const b = state.publicBooking;
     const activePros = professionals.filter(p => p.active);
-    if (state.publicBooking.professionalId !== 'any' && !activePros.some(p => p.id === state.publicBooking.professionalId)) {
-      state.publicBooking.professionalId = 'any';
-      state.publicBooking.selectedServices = [];
-      state.publicBooking.time = '';
-    }
-    if (state.publicBooking.date < todayISO()) {
-      state.publicBooking.date = todayISO();
-      state.publicBooking.time = '';
-    }
-    const visibleServices = getActiveServicesForProfessional(salon.id, state.publicBooking.professionalId);
-    const visibleIds = visibleServices.map(s => s.id);
-    if (state.publicBooking.selectedServices.some(id => !visibleIds.includes(id))) {
-      state.publicBooking.selectedServices = state.publicBooking.selectedServices.filter(id => visibleIds.includes(id));
-      state.publicBooking.time = '';
-    }
-    const selected = state.publicBooking.selectedServices;
-    const selectedServices = services.filter(s => selected.includes(s.id));
-    const total = serviceTotal(selected, services);
-    const duration = serviceDuration(selected, services, salon);
-    const slots = getAvailableSlots(salon.id, selected, state.publicBooking.professionalId, state.publicBooking.date);
+    const availableServices = getActiveServicesForProfessional(salon.id, b.draftProfessionalId);
+    const slots = getMultiAvailableSlots(salon.id, b.items, b.date);
+    const total = multiServiceTotal(b.items, services);
+    const duration = multiServiceDuration(b.items, services, salon);
     const enabled = salon.bookingEnabled && salon.status === 'ativo';
     app.innerHTML = `
       <main class="booking-shell">
         <section class="public-hero">
           <div class="public-hero-logo"><img src="${esc(salon.logoUrl || '/assets/logo-mark.svg')}" alt="${esc(salon.name)}"><div><div class="logo-title public-brand">${esc(salon.name)}</div><div class="logo-subtitle">Agenda online</div></div></div>
           <h1>Agende seu horário</h1>
-          <p>${esc(salon.address || '')}<br>Escolha profissional, serviços, data e horário disponível.</p>
+          <p>${esc(salon.address || '')}<br>Escolha os serviços, profissionais, data e horário disponível.</p>
         </section>
         ${enabled ? '' : `<div class="card danger"><div class="card-title">Agenda indisponível</div><div class="card-sub">Este salão pausou os agendamentos online.</div></div>`}
+
         <section class="step">
-          <div class="section"><h2>1. Profissional</h2></div>
-          <div class="field"><select onchange="Bella.setPublic('professionalId', this.value)">
-            ${salon.allowAnyProfessional !== false ? `<option value="any" ${state.publicBooking.professionalId === 'any' ? 'selected' : ''}>Qualquer profissional disponível</option>` : ''}
-            ${activePros.map(p => `<option value="${p.id}" ${state.publicBooking.professionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('')}
-          </select><small>Ao escolher uma profissional, aparecem apenas os serviços que ela realiza.</small></div>
-        </section>
-        <section class="step">
-          <div class="section"><h2>2. Serviços</h2><small>${selected.length} selecionado(s)</small></div>
-          <div class="service-picker">
-            ${visibleServices.length ? visibleServices.map(s => `<label class="service-option ${selected.includes(s.id) ? 'selected' : ''}">
-              <input type="checkbox" ${selected.includes(s.id) ? 'checked' : ''} onchange="Bella.togglePublicService('${s.id}')">
-              <div><strong>${esc(s.name)}</strong><div class="card-sub">${salon.showPrices ? money(s.price) + ' · ' : ''}${s.duration} min · antecedência ${formatAdvance(Math.max(s.minAdvanceMinutes, salon.minAdvanceMinutes))}</div></div>
-            </label>`).join('') : `<div class="empty">Nenhum serviço ativo disponível para esta profissional.</div>`}
+          <div class="section"><h2>1. Monte seu atendimento</h2></div>
+          <div class="card">
+            <div class="field"><label>Profissional</label><select onchange="Bella.setPublicItemDraft('professionalId', this.value)">
+              ${activePros.length ? activePros.map(p => `<option value="${p.id}" ${b.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional disponível</option>`}
+            </select><small>Os serviços mudam de acordo com a profissional escolhida.</small></div>
+            <div class="field"><label>Serviço</label><select onchange="Bella.setPublicItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
+              ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${b.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)}${salon.showPrices ? ' · ' + money(s.price) : ''} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço disponível</option>`}
+            </select></div>
+            <button class="btn secondary full" type="button" onclick="Bella.addPublicItem()" ${(!b.draftProfessionalId || !b.draftServiceId || !enabled) ? 'disabled' : ''}>Adicionar serviço</button>
           </div>
         </section>
+
+        <section class="step">
+          <div class="section"><h2>2. Serviços escolhidos</h2><small>${b.items.length} item(ns)</small></div>
+          <div class="list">
+            ${b.items.length ? b.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'public')).join('') : `<div class="empty">Adicione um ou mais serviços para continuar.</div>`}
+          </div>
+        </section>
+
         <section class="step">
           <div class="section"><h2>3. Data e horário</h2></div>
           <div class="card">
-            <div class="field"><label>Data</label><input type="date" min="${todayISO()}" value="${esc(state.publicBooking.date)}" onchange="Bella.setPublic('date', this.value)"></div>
-            <div class="slots">${slots.length ? slots.map(t => `<button class="slot ${state.publicBooking.time === t ? 'active' : ''}" onclick="Bella.setPublic('time','${t}')">${t}</button>`).join('') : `<button class="slot" disabled>Sem horários</button>`}</div>
+            <div class="field"><label>Data</label><input type="date" min="${todayISO()}" value="${esc(b.date)}" onchange="Bella.setPublic('date', this.value)"></div>
+            <div class="slots">${slots.length ? slots.map(t => `<button class="slot ${b.time === t ? 'active' : ''}" onclick="Bella.setPublic('time','${t}')">${t}</button>`).join('') : `<button class="slot" disabled>Sem horários</button>`}</div>
+            <small>${b.items.length ? 'O horário é o início do primeiro serviço. Os próximos são encaixados em sequência.' : 'Adicione serviços para ver horários.'}</small>
           </div>
         </section>
         <section class="step">
           <div class="section"><h2>4. Seus dados</h2></div>
           <div class="card">
-            <div class="field"><label>Nome</label><input value="${esc(state.publicBooking.clientName)}" oninput="Bella.setPublic('clientName', this.value)" placeholder="Seu nome" /></div>
-            <div class="field"><label>WhatsApp</label><input value="${esc(state.publicBooking.clientPhone)}" oninput="Bella.setPublic('clientPhone', this.value)" inputmode="tel" placeholder="(27) 99999-9999" /></div>
-            <div class="field"><label>Observação</label><textarea oninput="Bella.setPublic('notes', this.value)" placeholder="Opcional">${esc(state.publicBooking.notes)}</textarea></div>
+            <div class="field"><label>Nome</label><input value="${esc(b.clientName)}" oninput="Bella.setPublic('clientName', this.value)" placeholder="Seu nome" /></div>
+            <div class="field"><label>WhatsApp</label><input value="${esc(b.clientPhone)}" oninput="Bella.setPublic('clientPhone', this.value)" inputmode="tel" placeholder="(27) 99999-9999" /></div>
+            <div class="field"><label>Observação</label><textarea oninput="Bella.setPublic('notes', this.value)" placeholder="Opcional">${esc(b.notes)}</textarea></div>
           </div>
         </section>
         <div class="summary-box">
-          <strong>${selected.length ? money(total) : 'Escolha os serviços'}</strong>
-          <small>${selected.length ? `${selectedServices.map(s => s.name).join(' + ')} · duração estimada ${duration} min` : 'O resumo aparecerá aqui.'}</small>
+          <strong>${b.items.length ? money(total) : 'Monte seu atendimento'}</strong>
+          <small>${b.items.length ? `${b.items.length} serviço(s) · duração estimada ${duration} min` : 'O resumo aparecerá aqui.'}</small>
         </div>
         <button class="btn brand full" style="margin-top:14px" onclick="Bella.confirmPublicBooking('${salon.id}')" ${!enabled ? 'disabled' : ''}>Confirmar agendamento</button>
       </main>
@@ -1101,54 +1117,151 @@
     return activeServices.filter(s => (pro.services || []).includes(s.id));
   }
 
+  function ensurePublicBookingState(salonId) {
+    const { professionals } = salonData(salonId);
+    const activePros = professionals.filter(p => p.active);
+    const today = todayISO();
+    const b = state.publicBooking;
+    if (!Array.isArray(b.items)) b.items = [];
+    if (b.selectedServices?.length && !b.items.length) {
+      const proId = b.professionalId && b.professionalId !== 'any' ? b.professionalId : activePros[0]?.id;
+      b.items = (b.selectedServices || []).map(serviceId => ({ id: uid('bi'), professionalId: proId, serviceId })).filter(x => x.professionalId && x.serviceId);
+    }
+    if (!b.date || b.date < today) b.date = today;
+    b.items = sanitizeServiceItems(salonId, b.items);
+    if (!b.draftProfessionalId || !activePros.some(p => p.id === b.draftProfessionalId)) b.draftProfessionalId = activePros[0]?.id || '';
+    const available = getActiveServicesForProfessional(salonId, b.draftProfessionalId);
+    if (!available.some(s => s.id === b.draftServiceId)) b.draftServiceId = available[0]?.id || '';
+    const slots = getMultiAvailableSlots(salonId, b.items, b.date);
+    if (!slots.includes(b.time)) b.time = '';
+    return b;
+  }
+
   function ensureAppointmentDraft(salonId) {
     const { professionals } = salonData(salonId);
     const activePros = professionals.filter(p => p.active);
     const today = todayISO();
-    if (!state.appointmentDraft.date || state.appointmentDraft.date < today) {
-      state.appointmentDraft.date = state.selectedDate && state.selectedDate >= today ? state.selectedDate : today;
+    const d = state.appointmentDraft;
+    if (!Array.isArray(d.items)) d.items = [];
+    if (d.selectedServices?.length && !d.items.length) {
+      const proId = d.professionalId || activePros[0]?.id;
+      d.items = (d.selectedServices || []).map(serviceId => ({ id: uid('ai'), professionalId: proId, serviceId })).filter(x => x.professionalId && x.serviceId);
     }
-    if (!state.appointmentDraft.professionalId || !activePros.some(p => p.id === state.appointmentDraft.professionalId)) {
-      state.appointmentDraft.professionalId = activePros[0]?.id || '';
-      state.appointmentDraft.selectedServices = [];
-      state.appointmentDraft.time = '';
+    if (!d.date || d.date < today) d.date = state.selectedDate && state.selectedDate >= today ? state.selectedDate : today;
+    d.items = sanitizeServiceItems(salonId, d.items);
+    if (!d.draftProfessionalId || !activePros.some(p => p.id === d.draftProfessionalId)) d.draftProfessionalId = activePros[0]?.id || '';
+    const available = getActiveServicesForProfessional(salonId, d.draftProfessionalId);
+    if (!available.some(s => s.id === d.draftServiceId)) d.draftServiceId = available[0]?.id || '';
+    const slots = getMultiAvailableSlots(salonId, d.items, d.date);
+    if (!slots.includes(d.time)) d.time = '';
+    return d;
+  }
+
+  function sanitizeServiceItems(salonId, items) {
+    const { professionals, services } = salonData(salonId);
+    return (items || []).filter(item => {
+      const pro = professionals.find(p => p.id === item.professionalId && p.active);
+      const service = services.find(s => s.id === item.serviceId && s.active);
+      return pro && service && (pro.services || []).includes(service.id);
+    }).map(item => ({ id: item.id || uid('item'), professionalId: item.professionalId, serviceId: item.serviceId }));
+  }
+
+  function renderSelectedServiceItem(item, index, services, professionals, scope) {
+    const service = services.find(s => s.id === item.serviceId);
+    const pro = professionals.find(p => p.id === item.professionalId);
+    const removeFn = scope === 'public' ? `Bella.removePublicItem(${index})` : `Bella.removeAppointmentItem(${index})`;
+    return `<article class="item">
+      <div class="avatar">${index + 1}</div>
+      <div class="item-main">
+        <div class="item-title">${esc(service?.name || 'Serviço')}</div>
+        <div class="item-meta">${esc(pro?.name || 'Profissional')} · ${money(service?.price || 0)} · ${Number(service?.duration || 0)} min</div>
+      </div>
+      <button class="btn small secondary" type="button" onclick="${removeFn}">Remover</button>
+    </article>`;
+  }
+
+  function itemDuration(item, services, salon) {
+    const service = services.find(s => s.id === item.serviceId);
+    if (!service) return 0;
+    return Number(service.duration || 0) + Number(service.buffer ?? salon?.bufferMinutes ?? 0);
+  }
+
+  function multiServiceDuration(items, services, salon) {
+    return (items || []).reduce((sum, item) => sum + itemDuration(item, services, salon), 0);
+  }
+
+  function multiServiceTotal(items, services) {
+    return (items || []).reduce((sum, item) => sum + Number(services.find(s => s.id === item.serviceId)?.price || 0), 0);
+  }
+
+  function multiServiceAdvance(items, services, salon) {
+    const values = (items || []).map(item => Number(services.find(s => s.id === item.serviceId)?.minAdvanceMinutes || 0));
+    return Math.max(Number(salon?.minAdvanceMinutes || 0), ...values, 0);
+  }
+
+  function itemSummary(items, services, professionals, start = '') {
+    const salon = currentSalon() || {};
+    let offset = start ? timeToMin(start) : 0;
+    return (items || []).map(item => {
+      const service = services.find(s => s.id === item.serviceId);
+      const pro = professionals.find(p => p.id === item.professionalId);
+      const dur = Number(service?.duration || 0) + Number(service?.buffer ?? salon?.bufferMinutes ?? 0);
+      const time = start ? `${minToTime(offset)} ` : '';
+      offset += dur;
+      return `${time}${service?.name || 'Serviço'} com ${pro?.name || 'profissional'}`;
+    }).join(' · ');
+  }
+
+  function isProfessionalSegmentAvailable({ salon, professional, date, startMin, endMin, appointments }) {
+    if (!professional?.active) return false;
+    const day = new Date(date + 'T00:00:00').getDay();
+    if (!(professional.workDays || []).includes(day)) return false;
+    if (startMin < Math.max(timeToMin(salon.openingStart), timeToMin(professional.start))) return false;
+    if (endMin > Math.min(timeToMin(salon.openingEnd), timeToMin(professional.end))) return false;
+    if (professional.lunchStart && professional.lunchEnd) {
+      const lunchStart = timeToMin(professional.lunchStart);
+      const lunchEnd = timeToMin(professional.lunchEnd);
+      if (startMin < lunchEnd && endMin > lunchStart) return false;
     }
-    const validIds = getActiveServicesForProfessional(salonId, state.appointmentDraft.professionalId).map(s => s.id);
-    state.appointmentDraft.selectedServices = state.appointmentDraft.selectedServices.filter(id => validIds.includes(id));
-    const slots = getAvailableSlots(salonId, state.appointmentDraft.selectedServices, state.appointmentDraft.professionalId, state.appointmentDraft.date);
-    if (!slots.includes(state.appointmentDraft.time)) state.appointmentDraft.time = '';
-    return state.appointmentDraft;
+    return !appointments.some(a => a.date === date && a.professionalId === professional.id && !['cancelado','falta'].includes(a.status) && startMin < timeToMin(a.end) && endMin > timeToMin(a.start));
+  }
+
+  function getMultiAvailableSlots(salonId, items, date) {
+    const { salon, professionals, services, appointments } = salonData(salonId);
+    items = sanitizeServiceItems(salonId, items || []);
+    if (!items.length || !date) return [];
+    if (date < todayISO()) return [];
+    if (!salon.allowSameDay && date === todayISO()) return [];
+    const totalDuration = multiServiceDuration(items, services, salon);
+    const advance = multiServiceAdvance(items, services, salon);
+    const minDate = new Date(Date.now() + advance * 60000);
+    const slots = [];
+    const salonStart = timeToMin(salon.openingStart);
+    const salonEnd = timeToMin(salon.openingEnd);
+    for (let m = salonStart; m + totalDuration <= salonEnd; m += 30) {
+      const t = minToTime(m);
+      const startDate = new Date(`${date}T${t}:00`);
+      if (startDate < minDate) continue;
+      let cursor = m;
+      let ok = true;
+      for (const item of items) {
+        const service = services.find(s => s.id === item.serviceId);
+        const professional = professionals.find(p => p.id === item.professionalId);
+        const dur = Number(service?.duration || 0) + Number(service?.buffer ?? salon?.bufferMinutes ?? 0);
+        if (!dur || !isProfessionalSegmentAvailable({ salon, professional, date, startMin: cursor, endMin: cursor + dur, appointments })) {
+          ok = false;
+          break;
+        }
+        cursor += dur;
+      }
+      if (ok) slots.push(t);
+    }
+    return slots;
   }
 
   function getAvailableSlots(salonId, serviceIds, professionalId, date) {
-    const { salon, professionals, services, appointments } = salonData(salonId);
-    if (!serviceIds.length || !date) return [];
-    if (date < todayISO()) return [];
-    if (!salon.allowSameDay && date === todayISO()) return [];
-    const duration = serviceDuration(serviceIds, services, salon);
-    const advance = maxAdvance(serviceIds, services, salon);
-    const minDate = new Date(Date.now() + advance * 60000);
-    const candidates = professionalId === 'any' ? getPossibleProfessionals(salonId, serviceIds) : professionals.filter(p => p.id === professionalId && p.active && serviceIds.every(id => (p.services || []).includes(id)));
-    const slots = new Set();
-    candidates.forEach(p => {
-      const day = new Date(date + 'T00:00:00').getDay();
-      if (!p.workDays.includes(day)) return;
-      const start = Math.max(timeToMin(salon.openingStart), timeToMin(p.start));
-      const end = Math.min(timeToMin(salon.openingEnd), timeToMin(p.end));
-      for (let m = start; m + duration <= end; m += 30) {
-        const t = minToTime(m);
-        const startDate = new Date(`${date}T${t}:00`);
-        if (startDate < minDate) continue;
-        if (p.lunchStart && p.lunchEnd) {
-          const lunchStart = timeToMin(p.lunchStart);
-          const lunchEnd = timeToMin(p.lunchEnd);
-          if (m < lunchEnd && m + duration > lunchStart) continue;
-        }
-        const conflict = appointments.some(a => a.date === date && a.professionalId === p.id && !['cancelado','falta'].includes(a.status) && m < timeToMin(a.end) && m + duration > timeToMin(a.start));
-        if (!conflict) slots.add(t);
-      }
-    });
-    return [...slots].sort();
+    const items = (serviceIds || []).map(serviceId => ({ id: uid('slot'), professionalId, serviceId }));
+    return getMultiAvailableSlots(salonId, items, date);
   }
 
   function renderAdminPanel(user) {
@@ -1216,8 +1329,9 @@
     if (next.name === 'appointment') {
       const today = todayISO();
       state.appointmentDraft = {
-        professionalId: '',
-        selectedServices: [],
+        items: [],
+        draftProfessionalId: '',
+        draftServiceId: '',
         date: state.selectedDate && state.selectedDate >= today ? state.selectedDate : today,
         time: ''
       };
@@ -1261,26 +1375,51 @@
     if (!canEdit()) return;
     const salon = currentSalon();
     const data = new FormData(event.currentTarget);
-    const serviceIds = data.getAll('services');
-    if (!serviceIds.length) return toast('Selecione pelo menos um serviço.');
-    const db = getDb();
-    const { services } = salonData(salon.id);
-    const professionalId = String(data.get('professionalId') || state.appointmentDraft.professionalId || '');
-    const date = String(data.get('date') || state.appointmentDraft.date || '');
-    const start = String(data.get('start') || state.appointmentDraft.time || '');
-    if (!professionalId) return toast('Selecione uma profissional.');
+    const draft = ensureAppointmentDraft(salon.id);
+    const items = sanitizeServiceItems(salon.id, draft.items);
+    if (!items.length) return toast('Adicione pelo menos um serviço.');
+    const date = String(data.get('date') || draft.date || '');
+    const start = String(data.get('start') || draft.time || '');
     if (!start) return toast('Selecione um horário disponível.');
-    const availableSlots = getAvailableSlots(salon.id, serviceIds, professionalId, date);
+    const availableSlots = getMultiAvailableSlots(salon.id, items, date);
     if (!availableSlots.includes(start)) return toast('Este horário não está disponível ou já passou.');
-    const duration = serviceDuration(serviceIds, services, salon);
-    const end = minToTime(timeToMin(start) + duration);
-    const a = { id: uid('app'), salonId: salon.id, clientId: String(data.get('clientId')), professionalId, serviceIds, date, start, end, status: 'agendado', total: serviceTotal(serviceIds, services), duration, notes: String(data.get('notes') || ''), createdBy: currentUser().id, createdAt: new Date().toISOString() };
-    db.appointments.push(a);
+    const db = getDb();
+    const { services, professionals } = salonData(salon.id);
+    const clientId = String(data.get('clientId'));
+    const groupId = uid('grp');
+    const notes = String(data.get('notes') || '');
+    let cursor = timeToMin(start);
+    items.forEach((item, index) => {
+      const service = services.find(s => s.id === item.serviceId);
+      const duration = itemDuration(item, services, salon);
+      const appStart = minToTime(cursor);
+      const appEnd = minToTime(cursor + duration);
+      db.appointments.push({
+        id: uid('app'),
+        groupId,
+        groupIndex: index + 1,
+        groupTotal: items.length,
+        salonId: salon.id,
+        clientId,
+        professionalId: item.professionalId,
+        serviceIds: [item.serviceId],
+        date,
+        start: appStart,
+        end: appEnd,
+        status: 'agendado',
+        total: Number(service?.price || 0),
+        duration,
+        notes: `${notes}${items.length > 1 ? (notes ? '\n' : '') + 'Atendimento combinado: ' + itemSummary(items, services, professionals, start) : ''}`,
+        createdBy: currentUser().id,
+        createdAt: new Date().toISOString()
+      });
+      cursor += duration;
+    });
     saveDb(db);
     state.modal = null;
-    state.selectedDate = a.date;
-    state.appointmentDraft = { professionalId: '', selectedServices: [], date: todayISO(), time: '' };
-    toast('Agendamento criado.');
+    state.selectedDate = date;
+    state.appointmentDraft = { items: [], draftProfessionalId: '', draftServiceId: '', date: todayISO(), time: '' };
+    toast(items.length > 1 ? 'Atendimento com múltiplos serviços criado.' : 'Agendamento criado.');
     render();
   }
 
@@ -1524,24 +1663,82 @@
     toast('Link copiado.');
   }
 
-  function togglePublicService(serviceId) {
-    const visibleIds = getActiveServicesForProfessional(salonBySlug(location.pathname.split('/agenda/')[1] || '')?.id || currentSalon()?.id, state.publicBooking.professionalId).map(s => s.id);
-    if (!visibleIds.includes(serviceId)) return;
-    const arr = state.publicBooking.selectedServices;
-    if (arr.includes(serviceId)) state.publicBooking.selectedServices = arr.filter(id => id !== serviceId);
-    else state.publicBooking.selectedServices = [...arr, serviceId];
+  function setPublicItemDraft(field, value) {
+    const salon = salonBySlug(location.pathname.split('/agenda/')[1] || '') || currentSalon();
+    if (!salon) return;
+    ensurePublicBookingState(salon.id);
+    if (field === 'professionalId') {
+      state.publicBooking.draftProfessionalId = value;
+      const available = getActiveServicesForProfessional(salon.id, value);
+      state.publicBooking.draftServiceId = available[0]?.id || '';
+    }
+    if (field === 'serviceId') state.publicBooking.draftServiceId = value;
+    render();
+  }
+
+  function addPublicItem() {
+    const salon = salonBySlug(location.pathname.split('/agenda/')[1] || '') || currentSalon();
+    if (!salon) return;
+    const b = ensurePublicBookingState(salon.id);
+    if (!b.draftProfessionalId || !b.draftServiceId) return toast('Escolha profissional e serviço.');
+    const valid = getActiveServicesForProfessional(salon.id, b.draftProfessionalId).some(s => s.id === b.draftServiceId);
+    if (!valid) return toast('Este serviço não pertence à profissional escolhida.');
+    b.items.push({ id: uid('bi'), professionalId: b.draftProfessionalId, serviceId: b.draftServiceId });
+    b.time = '';
+    render();
+  }
+
+  function removePublicItem(index) {
+    state.publicBooking.items.splice(index, 1);
     state.publicBooking.time = '';
     render();
   }
 
+  function setAppointmentItemDraft(field, value) {
+    const salon = currentSalon();
+    if (!salon) return;
+    ensureAppointmentDraft(salon.id);
+    if (field === 'professionalId') {
+      state.appointmentDraft.draftProfessionalId = value;
+      const available = getActiveServicesForProfessional(salon.id, value);
+      state.appointmentDraft.draftServiceId = available[0]?.id || '';
+    }
+    if (field === 'serviceId') state.appointmentDraft.draftServiceId = value;
+    render();
+  }
+
+  function addAppointmentItem() {
+    const salon = currentSalon();
+    if (!salon) return;
+    const d = ensureAppointmentDraft(salon.id);
+    if (!d.draftProfessionalId || !d.draftServiceId) return toast('Escolha profissional e serviço.');
+    const valid = getActiveServicesForProfessional(salon.id, d.draftProfessionalId).some(s => s.id === d.draftServiceId);
+    if (!valid) return toast('Este serviço não pertence à profissional escolhida.');
+    d.items.push({ id: uid('ai'), professionalId: d.draftProfessionalId, serviceId: d.draftServiceId });
+    d.time = '';
+    render();
+  }
+
+  function removeAppointmentItem(index) {
+    state.appointmentDraft.items.splice(index, 1);
+    state.appointmentDraft.time = '';
+    render();
+  }
+
+  function togglePublicService(serviceId) {
+    const salon = salonBySlug(location.pathname.split('/agenda/')[1] || '') || currentSalon();
+    if (!salon) return;
+    ensurePublicBookingState(salon.id);
+    state.publicBooking.draftServiceId = serviceId;
+    addPublicItem();
+  }
+
   function setPublic(field, value) {
+    const salon = salonBySlug(location.pathname.split('/agenda/')[1] || '') || currentSalon();
     if (field === 'date' && value < todayISO()) value = todayISO();
     state.publicBooking[field] = value;
-    if (field === 'professionalId') {
-      state.publicBooking.selectedServices = [];
-      state.publicBooking.time = '';
-    }
     if (field === 'date') state.publicBooking.time = '';
+    if (salon) ensurePublicBookingState(salon.id);
     render();
   }
 
@@ -1550,10 +1747,6 @@
     if (!salon) return;
     if (field === 'date' && value < todayISO()) value = todayISO();
     state.appointmentDraft[field] = value;
-    if (field === 'professionalId') {
-      state.appointmentDraft.selectedServices = [];
-      state.appointmentDraft.time = '';
-    }
     if (field === 'date') state.appointmentDraft.time = '';
     ensureAppointmentDraft(salon.id);
     render();
@@ -1562,41 +1755,59 @@
   function toggleAppointmentService(serviceId) {
     const salon = currentSalon();
     if (!salon) return;
-    const validIds = getActiveServicesForProfessional(salon.id, state.appointmentDraft.professionalId).map(s => s.id);
-    if (!validIds.includes(serviceId)) return;
-    const arr = state.appointmentDraft.selectedServices;
-    if (arr.includes(serviceId)) state.appointmentDraft.selectedServices = arr.filter(id => id !== serviceId);
-    else state.appointmentDraft.selectedServices = [...arr, serviceId];
-    state.appointmentDraft.time = '';
     ensureAppointmentDraft(salon.id);
-    render();
+    state.appointmentDraft.draftServiceId = serviceId;
+    addAppointmentItem();
   }
 
   function confirmPublicBooking(salonId) {
-    const { salon, services } = salonData(salonId);
-    const b = state.publicBooking;
-    if (!b.selectedServices.length) return toast('Selecione pelo menos um serviço.');
+    const { salon, services, professionals } = salonData(salonId);
+    const b = ensurePublicBookingState(salonId);
+    const items = sanitizeServiceItems(salonId, b.items);
+    if (!items.length) return toast('Adicione pelo menos um serviço.');
     if (!b.date || !b.time) return toast('Escolha uma data e horário.');
     if (b.date < todayISO()) return toast('Escolha uma data atual ou futura.');
     if (!b.clientName.trim() || normalizePhone(b.clientPhone).length < 10) return toast('Informe nome e WhatsApp válidos.');
-    const slots = getAvailableSlots(salonId, b.selectedServices, b.professionalId, b.date);
+    const slots = getMultiAvailableSlots(salonId, items, b.date);
     if (!slots.includes(b.time)) return toast('Este horário não está mais disponível.');
-    const possible = b.professionalId === 'any' ? getPossibleProfessionals(salonId, b.selectedServices).filter(p => getAvailableSlots(salonId, b.selectedServices, p.id, b.date).includes(b.time)) : getPossibleProfessionals(salonId, b.selectedServices).filter(p => p.id === b.professionalId);
-    const pro = possible[0];
-    if (!pro) return toast('Não encontramos profissional disponível.');
     const db = getDb();
     let client = db.clients.find(c => c.salonId === salonId && normalizePhone(c.phone) === normalizePhone(b.clientPhone));
     if (!client) {
-      client = { id: uid('cli'), salonId, name: b.clientName.trim(), phone: b.clientPhone.trim(), email: '', preferredProfessionalId: pro.id, notes: '', formula: '', visits: 0, totalSpent: 0, createdAt: new Date().toISOString() };
+      client = { id: uid('cli'), salonId, name: b.clientName.trim(), phone: b.clientPhone.trim(), email: '', preferredProfessionalId: items[0].professionalId, notes: '', formula: '', visits: 0, totalSpent: 0, createdAt: new Date().toISOString() };
       db.clients.push(client);
     }
-    const duration = serviceDuration(b.selectedServices, services, salon);
-    const start = b.time;
-    const end = minToTime(timeToMin(start) + duration);
-    db.appointments.push({ id: uid('app'), salonId, clientId: client.id, professionalId: pro.id, serviceIds: [...b.selectedServices], date: b.date, start, end, status: 'agendado', total: serviceTotal(b.selectedServices, services), duration, notes: b.notes || 'Agendado pela cliente no link público.', createdBy: 'public', createdAt: new Date().toISOString() });
+    const groupId = uid('grp');
+    let cursor = timeToMin(b.time);
+    const summary = itemSummary(items, services, professionals, b.time);
+    items.forEach((item, index) => {
+      const service = services.find(s => s.id === item.serviceId);
+      const duration = itemDuration(item, services, salon);
+      const start = minToTime(cursor);
+      const end = minToTime(cursor + duration);
+      db.appointments.push({
+        id: uid('app'),
+        groupId,
+        groupIndex: index + 1,
+        groupTotal: items.length,
+        salonId,
+        clientId: client.id,
+        professionalId: item.professionalId,
+        serviceIds: [item.serviceId],
+        date: b.date,
+        start,
+        end,
+        status: 'agendado',
+        total: Number(service?.price || 0),
+        duration,
+        notes: `${b.notes || 'Agendado pela cliente no link público.'}${items.length > 1 ? '\nAtendimento combinado: ' + summary : ''}`,
+        createdBy: 'public',
+        createdAt: new Date().toISOString()
+      });
+      cursor += duration;
+    });
     saveDb(db);
-    const msg = `Olá, ${client.name}! Seu horário no ${salon.name} foi solicitado para ${brDate(b.date)} às ${start}. Serviços: ${serviceName(b.selectedServices, services)}.`;
-    state.publicBooking = { selectedServices: [], professionalId: 'any', date: todayISO(), time: '', clientName: '', clientPhone: '', notes: '' };
+    const msg = `Olá, ${client.name}! Seu horário no ${salon.name} foi solicitado para ${brDate(b.date)}. Serviços: ${summary}. Valor total: ${money(multiServiceTotal(items, services))}.`;
+    state.publicBooking = { items: [], draftProfessionalId: '', draftServiceId: '', date: todayISO(), time: '', clientName: '', clientPhone: '', notes: '' };
     render();
     setTimeout(() => {
       toast('Agendamento confirmado.');
@@ -1651,7 +1862,8 @@
   window.Bella = {
     login, changePassword, logout, navigate, openModal, closeModal, setDate, setClientSearch, setServiceFilter,
     updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, deleteClient, deleteService, deleteProfessional, saveFinancial, saveProduct,
-    adjustStock, saveSettings, copyBookingLink, openBookingLink, shareBookingLink, copyText, togglePublicService,
+    adjustStock, saveSettings, copyBookingLink, openBookingLink, shareBookingLink, copyText, togglePublicService, setPublicItemDraft, addPublicItem, removePublicItem,
+    setAppointmentItemDraft, addAppointmentItem, removeAppointmentItem,
     setPublic, setAppointmentDraft, toggleAppointmentService, confirmPublicBooking, openClient, addHairHistoryPrompt, toast, goLogin, toggleSalonStatus, openAdminCreateSalon
   };
 

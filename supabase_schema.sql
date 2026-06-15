@@ -134,6 +134,9 @@ create table if not exists client_hair_history (
 
 create table if not exists appointments (
   id uuid primary key default uuid_generate_v4(),
+  group_id uuid,
+  group_index integer default 1,
+  group_total integer default 1,
   salon_id uuid references salons(id) on delete cascade not null,
   client_id uuid references clients(id) on delete cascade not null,
   professional_id uuid references professionals(id) on delete set null,

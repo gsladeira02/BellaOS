@@ -12,9 +12,11 @@ Sistema mobile-first para salões de beleza femininos, inspirado nos padrões do
 - Link público de agendamento por slug: `/agenda/nomedosalão`.
 - Link de compartilhamento já ajustado para `https://os-bella.vercel.app/agenda/...`.
 - Antecedência mínima global e por serviço.
-- Agendamento com múltiplos serviços.
-- Escolha de profissional ou qualquer profissional disponível.
-- Cálculo automático de duração e valor.
+- Agendamento com múltiplos serviços em sequência.
+- Cada serviço pode ter uma profissional diferente.
+- Serviços filtrados automaticamente conforme a profissional escolhida.
+- Horários disponíveis calculados considerando a agenda de todas as profissionais do atendimento.
+- Cálculo automático de duração e valor total.
 - Clientes com ficha completa, edição e exclusão.
 - Histórico capilar e fórmula de coloração.
 - Serviços, categorias e pacotes com edição, ativação/inativação e exclusão.
@@ -123,3 +125,13 @@ A conta de demonstração não possui bloqueio de ações. Ela pode criar, edita
 - Horários que já passaram não aparecem e também são bloqueados na confirmação.
 - A agenda pública agora começa pela escolha da profissional e mostra apenas os serviços que aquela profissional realiza.
 - A agenda interna também filtra os serviços conforme a profissional escolhida.
+
+
+## Atualização de múltiplos serviços com profissionais diferentes
+
+- A agenda pública agora permite montar um atendimento como carrinho: escolha uma profissional, selecione o serviço e clique em **Adicionar serviço**.
+- Depois é possível escolher outra profissional e adicionar outro serviço no mesmo atendimento.
+- O sistema agenda os serviços em sequência e cria um bloco na agenda de cada profissional.
+- Exemplo: Escova com Ana às 14:00 e Manicure com Beatriz logo em seguida, dentro do mesmo atendimento da cliente.
+- O horário inicial só aparece se todos os blocos couberem nas agendas das profissionais escolhidas.
+- Horários passados continuam bloqueados.
