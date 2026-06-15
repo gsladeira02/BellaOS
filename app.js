@@ -148,6 +148,7 @@
         { id: 'cat_unhas', salonId, name: 'Unhas' },
         { id: 'cat_sobrancelhas', salonId, name: 'Sobrancelhas' },
         { id: 'cat_make', salonId, name: 'Maquiagem' },
+        { id: 'cat_penteados', salonId, name: 'Penteados' },
         { id: 'cat_noivas', salonId, name: 'Noivas' },
         { id: 'cat_estetica', salonId, name: 'Estética' },
         { id: 'cat_pacotes', salonId, name: 'Pacotes' }
@@ -162,12 +163,13 @@
         { id: 'srv_pedi', salonId, categoryId: 'cat_unhas', name: 'Pedicure', price: 45, duration: 55, minAdvanceMinutes: 60, buffer: 5, active: true, commissionType: 'fixed', commissionValue: 18, products: [{ productId: 'prod_esmalte', qty: 1 }] },
         { id: 'srv_sobrancelha', salonId, categoryId: 'cat_sobrancelhas', name: 'Design de sobrancelha', price: 45, duration: 30, minAdvanceMinutes: 60, buffer: 5, active: true, commissionType: 'percent', commissionValue: 45, products: [] },
         { id: 'srv_make', salonId, categoryId: 'cat_make', name: 'Maquiagem social', price: 180, duration: 90, minAdvanceMinutes: 1440, buffer: 15, active: true, commissionType: 'percent', commissionValue: 40, products: [] },
+        { id: 'srv_penteado', salonId, categoryId: 'cat_penteados', name: 'Penteado social', price: 160, duration: 75, minAdvanceMinutes: 1440, buffer: 15, active: true, commissionType: 'percent', commissionValue: 40, products: [] },
         { id: 'srv_noiva', salonId, categoryId: 'cat_noivas', name: 'Pacote noiva', price: 850, duration: 300, minAdvanceMinutes: 4320, buffer: 30, active: true, commissionType: 'percent', commissionValue: 35, products: [] }
       ],
       professionals: [
         { id: 'pro_ana', salonId, name: 'Ana Clara', phone: '27988881111', specialty: 'Cabelo e química', services: ['srv_escova','srv_corte','srv_hidratacao','srv_progressiva','srv_luzes','srv_noiva'], workDays: [1,2,3,4,5,6], start: '09:00', end: '18:00', lunchStart: '12:30', lunchEnd: '13:30', commissionDefault: 40, color: '#C89B7B', active: true },
         { id: 'pro_bia', salonId, name: 'Beatriz Lima', phone: '27988882222', specialty: 'Unhas e sobrancelhas', services: ['srv_mani','srv_pedi','srv_sobrancelha'], workDays: [1,2,3,4,5,6], start: '09:30', end: '19:00', lunchStart: '13:00', lunchEnd: '14:00', commissionDefault: 42, color: '#8B5E4E', active: true },
-        { id: 'pro_lu', salonId, name: 'Luiza Rocha', phone: '27988883333', specialty: 'Maquiagem e penteado', services: ['srv_make','srv_noiva','srv_escova'], workDays: [2,3,4,5,6], start: '10:00', end: '19:00', lunchStart: '14:00', lunchEnd: '15:00', commissionDefault: 40, color: '#4F8A6B', active: true }
+        { id: 'pro_lu', salonId, name: 'Luiza Rocha', phone: '27988883333', specialty: 'Maquiagem e penteado', services: ['srv_make','srv_penteado','srv_noiva','srv_escova'], workDays: [2,3,4,5,6], start: '10:00', end: '19:00', lunchStart: '14:00', lunchEnd: '15:00', commissionDefault: 40, color: '#4F8A6B', active: true }
       ],
       clients: [
         { id: 'cli_julia', salonId, name: 'Juliana Martins', phone: '27991112222', email: 'juliana@email.com', preferredProfessionalId: 'pro_ana', notes: 'Prefere escova modelada. Couro cabeludo sensível.', formula: '7.1 + OX 20 volumes', visits: 5, totalSpent: 950, createdAt: new Date().toISOString() },
@@ -883,12 +885,8 @@
     const salon = currentSalon();
     const { clients, professionals, services } = salonData(salon.id);
     const draft = ensureAppointmentDraft(salon.id);
-    const activePros = professionals.filter(p => p.active);
-    const selectedPro = activePros.find(p => p.id === draft.draftProfessionalId) || activePros[0];
-    if (selectedPro && draft.draftProfessionalId !== selectedPro.id) draft.draftProfessionalId = selectedPro.id;
-    const availableServices = getActiveServicesForProfessional(salon.id, draft.draftProfessionalId);
-    if (availableServices.length && !availableServices.some(s => s.id === draft.draftServiceId)) draft.draftServiceId = availableServices[0].id;
-    if (!availableServices.length) draft.draftServiceId = '';
+    const activeServices = getActiveServices(salon.id);
+    const availablePros = getProfessionalsForService(salon.id, draft.draftServiceId);
     const slots = getMultiAvailableSlots(salon.id, draft.items, draft.date);
     const total = multiServiceTotal(draft.items, services);
     const duration = multiServiceDuration(draft.items, services, salon);
@@ -898,27 +896,27 @@
 
         <div class="card" style="margin-bottom:14px">
           <div class="card-title">Adicionar serviço ao atendimento</div>
-          <div class="card-sub" style="margin-bottom:12px">Escolha a profissional e veja apenas os serviços que ela realiza. Você pode adicionar serviços com profissionais diferentes.</div>
-          <div class="field"><label>Profissional</label><select onchange="Bella.setAppointmentItemDraft('professionalId', this.value)">
-            ${activePros.length ? activePros.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Cadastre uma profissional ativa</option>`}
+          <div class="card-sub" style="margin-bottom:12px">Escolha os serviços. O BellaOS organiza a ordem automaticamente; maquiagem e penteado ficam no final.</div>
+          <div class="field"><label>Serviço</label><select onchange="Bella.setAppointmentItemDraft('serviceId', this.value)" ${activeServices.length ? '' : 'disabled'}>
+            ${activeServices.length ? activeServices.map(s => `<option value="${s.id}" ${draft.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)} · ${money(s.price)} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço cadastrado</option>`}
           </select></div>
-          <div class="field"><label>Serviço</label><select onchange="Bella.setAppointmentItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
-            ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${draft.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)} · ${money(s.price)} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço disponível</option>`}
-          </select></div>
+          <div class="field"><label>Profissional</label><select onchange="Bella.setAppointmentItemDraft('professionalId', this.value)" ${availablePros.length ? '' : 'disabled'}>
+            ${availablePros.length ? availablePros.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional realiza este serviço</option>`}
+          </select><small>As profissionais mudam de acordo com o serviço escolhido.</small></div>
           <button class="btn secondary full" type="button" onclick="Bella.addAppointmentItem()" ${(!draft.draftProfessionalId || !draft.draftServiceId) ? 'disabled' : ''}>Adicionar serviço</button>
         </div>
 
-        <div class="field"><label>Serviços escolhidos</label>
+        <div class="field"><label>Serviços escolhidos</label><small>Ordem automática do atendimento. Maquiagem e penteado são encaixados no final.</small>
           <div class="list">
             ${draft.items.length ? draft.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'appointment')).join('') : `<div class="empty">Nenhum serviço adicionado ainda.</div>`}
           </div>
         </div>
 
         <div class="field"><label>Data</label><input name="date" type="date" min="${todayISO()}" value="${esc(draft.date)}" required onchange="Bella.setAppointmentDraft('date', this.value)" /></div>
-        <div class="field"><label>Horário inicial disponível</label>
+        <div class="field"><label>Horário de início</label>
           <div class="slots">${slots.length ? slots.map(t => `<button type="button" class="slot ${draft.time === t ? 'active' : ''}" onclick="Bella.setAppointmentDraft('time','${t}')">${t}</button>`).join('') : `<button type="button" class="slot" disabled>Sem horários</button>`}</div>
           <input type="hidden" name="start" value="${esc(draft.time)}" required />
-          <small>${draft.items.length ? 'O sistema agenda cada serviço em sequência, na agenda da profissional escolhida.' : 'Adicione pelo menos um serviço para ver os horários.'}</small>
+          <small>${draft.items.length ? 'Você escolhe o horário de início. O sistema define a sequência dos serviços e encaixa cada profissional.' : 'Adicione pelo menos um serviço para ver os horários.'}</small>
         </div>
         <div class="summary-box">
           <strong>${draft.items.length ? money(total) : 'Monte o atendimento'}</strong>
@@ -1042,8 +1040,8 @@
     const { services, professionals } = salonData(salon.id);
     ensurePublicBookingState(salon.id);
     const b = state.publicBooking;
-    const activePros = professionals.filter(p => p.active);
-    const availableServices = getActiveServicesForProfessional(salon.id, b.draftProfessionalId);
+    const activeServices = getActiveServices(salon.id);
+    const availablePros = getProfessionalsForService(salon.id, b.draftServiceId);
     const slots = getMultiAvailableSlots(salon.id, b.items, b.date);
     const total = multiServiceTotal(b.items, services);
     const duration = multiServiceDuration(b.items, services, salon);
@@ -1053,19 +1051,19 @@
         <section class="public-hero">
           <div class="public-hero-logo"><img src="${esc(salon.logoUrl || '/assets/logo-mark.svg')}" alt="${esc(salon.name)}"><div><div class="logo-title public-brand">${esc(salon.name)}</div><div class="logo-subtitle">Agenda online</div></div></div>
           <h1>Agende seu horário</h1>
-          <p>${esc(salon.address || '')}<br>Escolha os serviços, profissionais, data e horário disponível.</p>
+          <p>${esc(salon.address || '')}<br>Selecione os serviços, escolha o horário de início e o sistema organiza a ordem automaticamente.</p>
         </section>
         ${enabled ? '' : `<div class="card danger"><div class="card-title">Agenda indisponível</div><div class="card-sub">Este salão pausou os agendamentos online.</div></div>`}
 
         <section class="step">
-          <div class="section"><h2>1. Monte seu atendimento</h2></div>
+          <div class="section"><h2>1. Escolha os serviços</h2></div>
           <div class="card">
-            <div class="field"><label>Profissional</label><select onchange="Bella.setPublicItemDraft('professionalId', this.value)">
-              ${activePros.length ? activePros.map(p => `<option value="${p.id}" ${b.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional disponível</option>`}
-            </select><small>Os serviços mudam de acordo com a profissional escolhida.</small></div>
-            <div class="field"><label>Serviço</label><select onchange="Bella.setPublicItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
-              ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${b.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)}${salon.showPrices ? ' · ' + money(s.price) : ''} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço disponível</option>`}
+            <div class="field"><label>Serviço</label><select onchange="Bella.setPublicItemDraft('serviceId', this.value)" ${activeServices.length ? '' : 'disabled'}>
+              ${activeServices.length ? activeServices.map(s => `<option value="${s.id}" ${b.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)}${salon.showPrices ? ' · ' + money(s.price) : ''} · ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviço disponível</option>`}
             </select></div>
+            <div class="field"><label>Profissional</label><select onchange="Bella.setPublicItemDraft('professionalId', this.value)" ${availablePros.length ? '' : 'disabled'}>
+              ${availablePros.length ? availablePros.map(p => `<option value="${p.id}" ${b.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} · ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional realiza este serviço</option>`}
+            </select><small>As profissionais mudam de acordo com o serviço escolhido.</small></div>
             <button class="btn secondary full" type="button" onclick="Bella.addPublicItem()" ${(!b.draftProfessionalId || !b.draftServiceId || !enabled) ? 'disabled' : ''}>Adicionar serviço</button>
           </div>
         </section>
@@ -1075,14 +1073,15 @@
           <div class="list">
             ${b.items.length ? b.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'public')).join('') : `<div class="empty">Adicione um ou mais serviços para continuar.</div>`}
           </div>
+          ${b.items.length ? `<div class="card-sub" style="margin-top:10px">Ordem automática: maquiagem e penteado ficam no final do atendimento.</div>` : ''}
         </section>
 
         <section class="step">
-          <div class="section"><h2>3. Data e horário</h2></div>
+          <div class="section"><h2>3. Data e horário de início</h2></div>
           <div class="card">
             <div class="field"><label>Data</label><input type="date" min="${todayISO()}" value="${esc(b.date)}" onchange="Bella.setPublic('date', this.value)"></div>
             <div class="slots">${slots.length ? slots.map(t => `<button class="slot ${b.time === t ? 'active' : ''}" onclick="Bella.setPublic('time','${t}')">${t}</button>`).join('') : `<button class="slot" disabled>Sem horários</button>`}</div>
-            <small>${b.items.length ? 'O horário é o início do primeiro serviço. Os próximos são encaixados em sequência.' : 'Adicione serviços para ver horários.'}</small>
+            <small>${b.items.length ? 'Este é o horário em que você começa. O BellaOS define a sequência dos serviços e encaixa cada profissional.' : 'Adicione serviços para ver horários.'}</small>
           </div>
         </section>
         <section class="step">
@@ -1108,6 +1107,16 @@
     return professionals.filter(p => p.active && serviceIds.every(id => (p.services || []).includes(id)));
   }
 
+  function getActiveServices(salonId) {
+    const { services } = salonData(salonId);
+    return services.filter(s => s.active);
+  }
+
+  function getProfessionalsForService(salonId, serviceId) {
+    const { professionals } = salonData(salonId);
+    return professionals.filter(p => p.active && (!serviceId || (p.services || []).includes(serviceId)));
+  }
+
   function getActiveServicesForProfessional(salonId, professionalId) {
     const { services, professionals } = salonData(salonId);
     const activeServices = services.filter(s => s.active);
@@ -1117,41 +1126,56 @@
     return activeServices.filter(s => (pro.services || []).includes(s.id));
   }
 
+  function normalizedText(value) {
+    return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  }
+
+  function isFinalStageService(service, categories) {
+    const category = categories.find(c => c.id === service?.categoryId)?.name || '';
+    const text = normalizedText(`${service?.name || ''} ${category}`);
+    return text.includes('maquiagem') || text.includes('make') || text.includes('penteado') || text.includes('noiva');
+  }
+
+  function orderServiceItems(salonId, items) {
+    const { services, categories } = salonData(salonId);
+    return (items || [])
+      .map((item, originalIndex) => ({ ...item, originalIndex }))
+      .sort((a, b) => {
+        const serviceA = services.find(s => s.id === a.serviceId);
+        const serviceB = services.find(s => s.id === b.serviceId);
+        const priorityA = isFinalStageService(serviceA, categories) ? 2 : 1;
+        const priorityB = isFinalStageService(serviceB, categories) ? 2 : 1;
+        if (priorityA !== priorityB) return priorityA - priorityB;
+        return a.originalIndex - b.originalIndex;
+      })
+      .map(({ originalIndex, ...item }) => item);
+  }
+
   function ensurePublicBookingState(salonId) {
-    const { professionals } = salonData(salonId);
-    const activePros = professionals.filter(p => p.active);
     const today = todayISO();
     const b = state.publicBooking;
     if (!Array.isArray(b.items)) b.items = [];
-    if (b.selectedServices?.length && !b.items.length) {
-      const proId = b.professionalId && b.professionalId !== 'any' ? b.professionalId : activePros[0]?.id;
-      b.items = (b.selectedServices || []).map(serviceId => ({ id: uid('bi'), professionalId: proId, serviceId })).filter(x => x.professionalId && x.serviceId);
-    }
     if (!b.date || b.date < today) b.date = today;
     b.items = sanitizeServiceItems(salonId, b.items);
-    if (!b.draftProfessionalId || !activePros.some(p => p.id === b.draftProfessionalId)) b.draftProfessionalId = activePros[0]?.id || '';
-    const available = getActiveServicesForProfessional(salonId, b.draftProfessionalId);
-    if (!available.some(s => s.id === b.draftServiceId)) b.draftServiceId = available[0]?.id || '';
+    const activeServices = getActiveServices(salonId);
+    if (!b.draftServiceId || !activeServices.some(s => s.id === b.draftServiceId)) b.draftServiceId = activeServices[0]?.id || '';
+    const availablePros = getProfessionalsForService(salonId, b.draftServiceId);
+    if (!b.draftProfessionalId || !availablePros.some(p => p.id === b.draftProfessionalId)) b.draftProfessionalId = availablePros[0]?.id || '';
     const slots = getMultiAvailableSlots(salonId, b.items, b.date);
     if (!slots.includes(b.time)) b.time = '';
     return b;
   }
 
   function ensureAppointmentDraft(salonId) {
-    const { professionals } = salonData(salonId);
-    const activePros = professionals.filter(p => p.active);
     const today = todayISO();
     const d = state.appointmentDraft;
     if (!Array.isArray(d.items)) d.items = [];
-    if (d.selectedServices?.length && !d.items.length) {
-      const proId = d.professionalId || activePros[0]?.id;
-      d.items = (d.selectedServices || []).map(serviceId => ({ id: uid('ai'), professionalId: proId, serviceId })).filter(x => x.professionalId && x.serviceId);
-    }
     if (!d.date || d.date < today) d.date = state.selectedDate && state.selectedDate >= today ? state.selectedDate : today;
     d.items = sanitizeServiceItems(salonId, d.items);
-    if (!d.draftProfessionalId || !activePros.some(p => p.id === d.draftProfessionalId)) d.draftProfessionalId = activePros[0]?.id || '';
-    const available = getActiveServicesForProfessional(salonId, d.draftProfessionalId);
-    if (!available.some(s => s.id === d.draftServiceId)) d.draftServiceId = available[0]?.id || '';
+    const activeServices = getActiveServices(salonId);
+    if (!d.draftServiceId || !activeServices.some(s => s.id === d.draftServiceId)) d.draftServiceId = activeServices[0]?.id || '';
+    const availablePros = getProfessionalsForService(salonId, d.draftServiceId);
+    if (!d.draftProfessionalId || !availablePros.some(p => p.id === d.draftProfessionalId)) d.draftProfessionalId = availablePros[0]?.id || '';
     const slots = getMultiAvailableSlots(salonId, d.items, d.date);
     if (!slots.includes(d.time)) d.time = '';
     return d;
@@ -1159,11 +1183,12 @@
 
   function sanitizeServiceItems(salonId, items) {
     const { professionals, services } = salonData(salonId);
-    return (items || []).filter(item => {
+    const cleaned = (items || []).filter(item => {
       const pro = professionals.find(p => p.id === item.professionalId && p.active);
       const service = services.find(s => s.id === item.serviceId && s.active);
       return pro && service && (pro.services || []).includes(service.id);
     }).map(item => ({ id: item.id || uid('item'), professionalId: item.professionalId, serviceId: item.serviceId }));
+    return orderServiceItems(salonId, cleaned);
   }
 
   function renderSelectedServiceItem(item, index, services, professionals, scope) {
@@ -1667,12 +1692,12 @@
     const salon = salonBySlug(location.pathname.split('/agenda/')[1] || '') || currentSalon();
     if (!salon) return;
     ensurePublicBookingState(salon.id);
-    if (field === 'professionalId') {
-      state.publicBooking.draftProfessionalId = value;
-      const available = getActiveServicesForProfessional(salon.id, value);
-      state.publicBooking.draftServiceId = available[0]?.id || '';
+    if (field === 'serviceId') {
+      state.publicBooking.draftServiceId = value;
+      const available = getProfessionalsForService(salon.id, value);
+      state.publicBooking.draftProfessionalId = available[0]?.id || '';
     }
-    if (field === 'serviceId') state.publicBooking.draftServiceId = value;
+    if (field === 'professionalId') state.publicBooking.draftProfessionalId = value;
     render();
   }
 
@@ -1681,9 +1706,10 @@
     if (!salon) return;
     const b = ensurePublicBookingState(salon.id);
     if (!b.draftProfessionalId || !b.draftServiceId) return toast('Escolha profissional e serviço.');
-    const valid = getActiveServicesForProfessional(salon.id, b.draftProfessionalId).some(s => s.id === b.draftServiceId);
-    if (!valid) return toast('Este serviço não pertence à profissional escolhida.');
+    const valid = getProfessionalsForService(salon.id, b.draftServiceId).some(p => p.id === b.draftProfessionalId);
+    if (!valid) return toast('Esta profissional não realiza este serviço.');
     b.items.push({ id: uid('bi'), professionalId: b.draftProfessionalId, serviceId: b.draftServiceId });
+    b.items = orderServiceItems(salon.id, b.items);
     b.time = '';
     render();
   }
@@ -1698,12 +1724,12 @@
     const salon = currentSalon();
     if (!salon) return;
     ensureAppointmentDraft(salon.id);
-    if (field === 'professionalId') {
-      state.appointmentDraft.draftProfessionalId = value;
-      const available = getActiveServicesForProfessional(salon.id, value);
-      state.appointmentDraft.draftServiceId = available[0]?.id || '';
+    if (field === 'serviceId') {
+      state.appointmentDraft.draftServiceId = value;
+      const available = getProfessionalsForService(salon.id, value);
+      state.appointmentDraft.draftProfessionalId = available[0]?.id || '';
     }
-    if (field === 'serviceId') state.appointmentDraft.draftServiceId = value;
+    if (field === 'professionalId') state.appointmentDraft.draftProfessionalId = value;
     render();
   }
 
@@ -1712,9 +1738,10 @@
     if (!salon) return;
     const d = ensureAppointmentDraft(salon.id);
     if (!d.draftProfessionalId || !d.draftServiceId) return toast('Escolha profissional e serviço.');
-    const valid = getActiveServicesForProfessional(salon.id, d.draftProfessionalId).some(s => s.id === d.draftServiceId);
-    if (!valid) return toast('Este serviço não pertence à profissional escolhida.');
+    const valid = getProfessionalsForService(salon.id, d.draftServiceId).some(p => p.id === d.draftProfessionalId);
+    if (!valid) return toast('Esta profissional não realiza este serviço.');
     d.items.push({ id: uid('ai'), professionalId: d.draftProfessionalId, serviceId: d.draftServiceId });
+    d.items = orderServiceItems(salon.id, d.items);
     d.time = '';
     render();
   }
@@ -1853,7 +1880,7 @@
     const slug = slugify(name);
     db.salons.push({ id: salonId, name, slug, logoUrl: '/assets/logo-mark.svg', whatsapp: '', address: '', openingStart: '09:00', openingEnd: '19:00', minAdvanceMinutes: 120, bufferMinutes: 10, allowSameDay: true, allowAnyProfessional: true, showPrices: true, bookingEnabled: true, color: '#C89B7B', status: 'ativo', plan: 'Essencial', createdAt: new Date().toISOString() });
     db.users.push({ id: uid('u'), salonId, name: 'Usuária Principal', email, password: 'bella123', role: 'owner', mustChangePassword: true, isDemo: false });
-    db.categories.push(...['Cabelo','Unhas','Sobrancelhas','Maquiagem','Noivas','Estética','Pacotes'].map(n => ({ id: uid('cat'), salonId, name: n })));
+    db.categories.push(...['Cabelo','Unhas','Sobrancelhas','Maquiagem','Penteados','Noivas','Estética','Pacotes'].map(n => ({ id: uid('cat'), salonId, name: n })));
     saveDb(db);
     toast('Salão criado com senha temporária bella123.');
     render();

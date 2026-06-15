@@ -14,7 +14,9 @@ Sistema mobile-first para salões de beleza femininos, inspirado nos padrões do
 - Antecedência mínima global e por serviço.
 - Agendamento com múltiplos serviços em sequência.
 - Cada serviço pode ter uma profissional diferente.
-- Serviços filtrados automaticamente conforme a profissional escolhida.
+- No agendamento, a cliente escolhe os serviços primeiro e depois escolhe a profissional que realiza cada serviço.
+- Profissionais filtradas automaticamente conforme o serviço escolhido.
+- Ordem automática dos serviços: maquiagem, penteado e noiva são encaixados ao final do atendimento.
 - Horários disponíveis calculados considerando a agenda de todas as profissionais do atendimento.
 - Cálculo automático de duração e valor total.
 - Clientes com ficha completa, edição e exclusão.
@@ -123,8 +125,9 @@ A conta de demonstração não possui bloqueio de ações. Ela pode criar, edita
 
 - O novo agendamento interno agora mostra horários disponíveis para seleção, em vez de deixar digitar qualquer horário.
 - Horários que já passaram não aparecem e também são bloqueados na confirmação.
-- A agenda pública agora começa pela escolha da profissional e mostra apenas os serviços que aquela profissional realiza.
-- A agenda interna também filtra os serviços conforme a profissional escolhida.
+- A agenda pública agora começa pela escolha do serviço e mostra apenas as profissionais que realizam aquele serviço.
+- A agenda interna também filtra as profissionais conforme o serviço escolhido.
+- A pessoa escolhe o horário de início; o BellaOS define a sequência do atendimento automaticamente.
 
 
 ## Atualização de múltiplos serviços com profissionais diferentes
@@ -135,3 +138,13 @@ A conta de demonstração não possui bloqueio de ações. Ela pode criar, edita
 - Exemplo: Escova com Ana às 14:00 e Manicure com Beatriz logo em seguida, dentro do mesmo atendimento da cliente.
 - O horário inicial só aparece se todos os blocos couberem nas agendas das profissionais escolhidas.
 - Horários passados continuam bloqueados.
+
+
+## Atualização de ordem automática dos serviços
+
+- A cliente seleciona os serviços que deseja adicionar ao atendimento.
+- Para cada serviço, o sistema mostra apenas as profissionais que realizam aquele serviço.
+- Depois de montar o atendimento, a cliente escolhe apenas o horário de início.
+- O BellaOS organiza a ordem dos serviços automaticamente.
+- Serviços de maquiagem, penteado e noiva são sempre encaixados no final do atendimento.
+- O cálculo dos horários disponíveis já considera essa ordem automática e a agenda de cada profissional.
