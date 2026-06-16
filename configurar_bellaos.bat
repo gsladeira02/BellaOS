@@ -2,18 +2,34 @@
 setlocal EnableExtensions EnableDelayedExpansion
 title BellaOS - Configurador
 
+cd /d "%~dp0"
+set "BASE_DIR=%~dp0"
+set "APPJS=%BASE_DIR%public\app.js"
+
 echo.
 echo ==========================================
 echo  BellaOS - Configurador
 echo ==========================================
 echo.
-echo Execute este arquivo dentro da pasta do BellaOS, onde ficam public, api e vercel.json.
+echo Pasta detectada:
+echo %BASE_DIR%
+echo.
+echo Procurando:
+echo %APPJS%
 echo.
 
-set "APPJS=public\app.js"
 if not exist "%APPJS%" (
-  echo ERRO: app.js nao encontrado.
-  echo Entre na pasta correta antes de executar este .bat.
+  echo ERRO: public\app.js nao encontrado.
+  echo.
+  echo Confira se a pasta atual tem esta estrutura:
+  echo.
+  echo public\app.js
+  echo public\index.html
+  echo api\
+  echo vercel.json
+  echo.
+  echo Se o ZIP criou uma pasta dentro de outra, entre na pasta mais interna, onde aparece a pasta public.
+  echo.
   pause
   exit /b 1
 )
@@ -35,9 +51,10 @@ if "%INFINITE_TAG%"=="" (
 )
 
 echo.
-echo Aplicando configuracoes no app.js...
+echo Aplicando configuracoes em public\app.js...
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-  "$p='app.js';" ^
+  "$p=$env:APPJS;" ^
   "$c=Get-Content $p -Raw;" ^
   "$c=$c -replace \"const PUBLIC_BASE_URL = '[^']*';\", \"const PUBLIC_BASE_URL = '%PUBLIC_BASE_URL%';\";" ^
   "$c=$c -replace \"const SUPABASE_PROJECT_URL = '[^']*';\", \"const SUPABASE_PROJECT_URL = '%SUPABASE_PROJECT_URL%';\";" ^
@@ -46,16 +63,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "Set-Content $p $c -Encoding UTF8;"
 
 if errorlevel 1 (
-  echo ERRO: nao consegui atualizar o app.js.
+  echo.
+  echo ERRO: nao consegui atualizar public\app.js.
   pause
   exit /b 1
 )
 
 echo.
-echo Configuracao concluida.
+echo Configuracao concluida com sucesso.
 echo.
 echo IMPORTANTE:
-echo 1. Execute o arquivo supabase_schema.sql no SQL Editor do Supabase.
+echo 1. Execute o arquivo supabase_schema.sql no SQL Editor do Supabase, se ainda nao executou.
 echo 2. Suba estes arquivos para o GitHub limpo.
 echo 3. Na Vercel, mantenha o projeto bella-os.
 echo 4. Se usar a CLI, rode primeiro: vercel link

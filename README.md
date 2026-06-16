@@ -143,3 +143,26 @@ O `vercel.json` também define:
 ```
 
 Assim o erro `No Output Directory named "public" found` não deve acontecer.
+
+
+## Correção do configurador
+
+Nesta versão, o arquivo `configurar_bellaos.bat` altera corretamente:
+
+```txt
+public/app.js
+```
+
+porque o frontend fica dentro da pasta `public/`.
+
+
+## Configurador corrigido
+
+O `configurar_bellaos.bat` agora usa automaticamente a pasta onde o próprio arquivo está salvo.  
+Ele procura o arquivo em:
+
+```txt
+public/app.js
+```
+
+Então execute o `.bat` dentro da pasta que contém `public`, `api` e `vercel.json`.
