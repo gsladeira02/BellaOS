@@ -362,8 +362,13 @@
         subscriptionDueDate: addMonthsISOFrom(todayISO(), 1),
         subscriptionGraceUntil: addDaysToISO(addMonthsISOFrom(todayISO(), 1), 3),
         infinitePayHandle: '',
+        setupCompleted: false,
+        setupStep: 1,
         createdAt: new Date().toISOString()
       }],
+      units: [
+        { id: 'unit_studio_bella', salonId, name: 'Studio Bella - Centro', address: 'Rua das Flores, 120 - Centro', phone: '27999999999', active: true, createdAt: new Date().toISOString() }
+      ],
       users: [
         { id: 'u_owner', salonId, name: 'Dona do Studio Bella', email: 'contato@studiobella.com', password: 'bella123', role: 'owner', mustChangePassword: false, isDemo: false },
         { id: 'u_first', salonId, name: 'Primeiro Acesso', email: 'primeiro@studiobella.com', password: 'trocar123', role: 'owner', mustChangePassword: true, isDemo: false },
@@ -394,9 +399,9 @@
         { id: 'srv_noiva', salonId, categoryId: 'cat_noivas', name: 'Pacote noiva', price: 850, duration: 300, minAdvanceMinutes: 4320, buffer: 30, active: true, commissionType: 'percent', commissionValue: 35, products: [] }
       ],
       professionals: [
-        { id: 'pro_ana', salonId, name: 'Ana Clara', phone: '27988881111', specialty: 'Cabelo e qu\u00edmica', services: ['srv_escova','srv_corte','srv_hidratacao','srv_progressiva','srv_luzes','srv_noiva'], workDays: [1,2,3,4,5,6], start: '09:00', end: '18:00', lunchStart: '12:30', lunchEnd: '13:30', commissionDefault: 40, color: '#C89B7B', active: true },
-        { id: 'pro_bia', salonId, name: 'Beatriz Lima', phone: '27988882222', specialty: 'Unhas e sobrancelhas', services: ['srv_mani','srv_pedi','srv_sobrancelha'], workDays: [1,2,3,4,5,6], start: '09:30', end: '19:00', lunchStart: '13:00', lunchEnd: '14:00', commissionDefault: 42, color: '#8B5E4E', active: true },
-        { id: 'pro_lu', salonId, name: 'Luiza Rocha', phone: '27988883333', specialty: 'Maquiagem e penteado', services: ['srv_make','srv_penteado','srv_noiva','srv_escova'], workDays: [2,3,4,5,6], start: '10:00', end: '19:00', lunchStart: '14:00', lunchEnd: '15:00', commissionDefault: 40, color: '#4F8A6B', active: true }
+        { id: 'pro_ana', salonId, unitId: 'unit_studio_bella', name: 'Ana Clara', phone: '27988881111', specialty: 'Cabelo e qu\u00edmica', services: ['srv_escova','srv_corte','srv_hidratacao','srv_progressiva','srv_luzes','srv_noiva'], workDays: [1,2,3,4,5,6], start: '09:00', end: '18:00', lunchStart: '12:30', lunchEnd: '13:30', commissionDefault: 40, color: '#C89B7B', active: true },
+        { id: 'pro_bia', salonId, unitId: 'unit_studio_bella', name: 'Beatriz Lima', phone: '27988882222', specialty: 'Unhas e sobrancelhas', services: ['srv_mani','srv_pedi','srv_sobrancelha'], workDays: [1,2,3,4,5,6], start: '09:30', end: '19:00', lunchStart: '13:00', lunchEnd: '14:00', commissionDefault: 42, color: '#8B5E4E', active: true },
+        { id: 'pro_lu', salonId, unitId: 'unit_studio_bella', name: 'Luiza Rocha', phone: '27988883333', specialty: 'Maquiagem e penteado', services: ['srv_make','srv_penteado','srv_noiva','srv_escova'], workDays: [2,3,4,5,6], start: '10:00', end: '19:00', lunchStart: '14:00', lunchEnd: '15:00', commissionDefault: 40, color: '#4F8A6B', active: true }
       ],
       clients: [
         { id: 'cli_julia', salonId, name: 'Juliana Martins', phone: '27991112222', email: 'juliana@email.com', preferredProfessionalId: 'pro_ana', notes: 'Prefere escova modelada. Couro cabeludo sens\u00edvel.', formula: '7.1 + OX 20 volumes', visits: 5, totalSpent: 950, createdAt: new Date().toISOString() },
@@ -441,7 +446,13 @@
       const parsed = JSON.parse(raw);
       const required = ['salons','users','services','professionals','clients','appointments','products','financial'];
       if (!required.every(k => Array.isArray(parsed[k]))) return seedDb();
-      ['hairHistory','stockMovements','logs','categories','scheduleExceptions'].forEach(k => { if (!Array.isArray(parsed[k])) parsed[k] = []; });
+      ['hairHistory','stockMovements','logs','categories','scheduleExceptions','units'].forEach(k => { if (!Array.isArray(parsed[k])) parsed[k] = []; });
+      parsed.salons.forEach(salon => {
+        if (salon.setupCompleted === undefined) salon.setupCompleted = false;
+        if (!salon.setupStep) salon.setupStep = 1;
+        const hasUnit = parsed.units.some(u => u.salonId === salon.id);
+        if (!hasUnit) parsed.units.push({ id: uid('unit'), salonId: salon.id, name: salon.name || 'Unidade principal', address: salon.address || '', phone: salon.whatsapp || '', active: true, createdAt: new Date().toISOString() });
+      });
       parsed.professionals.forEach(p => { if (!p.weeklySchedule) p.weeklySchedule = normalizedWeeklySchedule(p); });
       return parsed;
     } catch (e) {
@@ -531,6 +542,7 @@
       salon: db.salons.find(s => s.id === salonId),
       categories: db.categories.filter(x => x.salonId === salonId),
       services: db.services.filter(x => x.salonId === salonId),
+      units: (db.units || []).filter(x => x.salonId === salonId),
       professionals: db.professionals.filter(x => x.salonId === salonId),
       clients: db.clients.filter(x => x.salonId === salonId),
       appointments: db.appointments.filter(x => x.salonId === salonId),
@@ -629,6 +641,11 @@
     const lock = subscriptionLockInfo(salon);
     if (lock.locked) {
       renderSubscriptionBlocked(user, salon, lock);
+      return;
+    }
+
+    if (salon && !salon.setupCompleted) {
+      renderOnboarding(user, salon);
       return;
     }
 
@@ -799,6 +816,155 @@
           </form>
         </section>
       </main>
+    `;
+  }
+
+
+  function setupProgress(step) {
+    const labels = ['Unidades', 'Servi\u00e7os', 'Profissionais', 'Hor\u00e1rios'];
+    return `<div class="setup-progress">${labels.map((label, idx) => {
+      const n = idx + 1;
+      return `<div class="setup-dot ${step === n ? 'active' : ''} ${step > n ? 'done' : ''}"><strong>${n}</strong><span>${label}</span></div>`;
+    }).join('')}</div>`;
+  }
+
+  function renderOnboarding(user, salon) {
+    const step = Number(salon.setupStep || 1);
+    app.innerHTML = `
+      <main class="login-screen setup-screen">
+        <section class="login-card setup-card">
+          <div class="login-logo">
+            <img class="logo-mark" src="/assets/logo-mark.svg" alt="BellaOS" />
+            <div>
+              <div class="logo-title">BellaOS</div>
+              <div class="logo-subtitle">Configura\u00e7\u00e3o inicial</div>
+            </div>
+          </div>
+          ${setupProgress(step)}
+          ${renderOnboardingStep(step, user, salon)}
+        </section>
+      </main>
+    `;
+  }
+
+  function renderOnboardingStep(step, user, salon) {
+    const data = salonData(salon.id);
+    if (step === 1) return renderSetupUnits(salon, data);
+    if (step === 2) return renderSetupServices(salon, data);
+    if (step === 3) return renderSetupProfessionals(salon, data);
+    return renderSetupSchedules(salon, data);
+  }
+
+  function renderSetupUnits(salon, data) {
+    return `
+      <section class="header setup-header">
+        <div class="eyebrow">Passo 1 de 4</div>
+        <h1>Cadastre as unidades</h1>
+        <p>Comece informando cada unidade do sal\u00e3o. Cada uma pode ter endere\u00e7o e telefone pr\u00f3prios.</p>
+      </section>
+      <form class="setup-form" onsubmit="Bella.saveSetupUnit(event)">
+        <div class="field"><label>Nome da unidade</label><input name="name" placeholder="Ex: Studio Bella - Centro" required /></div>
+        <div class="field"><label>Endere\u00e7o</label><input name="address" placeholder="Rua, n\u00famero, bairro e cidade" required /></div>
+        <div class="field"><label>Telefone/WhatsApp da unidade</label><input name="phone" inputmode="tel" placeholder="(27) 99999-9999" required /></div>
+        <button class="btn brand full" type="submit">Adicionar unidade</button>
+      </form>
+      <div class="setup-list">
+        ${data.units.map(u => `<div class="setup-item"><strong>${esc(u.name)}</strong><span>${esc(u.address)}<br>${esc(u.phone)}</span><button class="btn small danger" onclick="Bella.deleteSetupUnit('${u.id}')">Excluir</button></div>`).join('') || `<div class="empty">Nenhuma unidade cadastrada ainda.</div>`}
+      </div>
+      <div class="actions vertical">
+        <button class="btn brand full" onclick="Bella.nextSetupStep()" ${data.units.length ? '' : 'disabled'}>Continuar para servi\u00e7os</button>
+      </div>
+    `;
+  }
+
+  function renderSetupServices(salon, data) {
+    return `
+      <section class="header setup-header">
+        <div class="eyebrow">Passo 2 de 4</div>
+        <h1>Cadastre os servi\u00e7os</h1>
+        <p>Informe o que o sal\u00e3o oferece. Depois voc\u00ea vai selecionar quais servi\u00e7os cada profissional realiza.</p>
+      </section>
+      <form class="setup-form" onsubmit="Bella.saveSetupService(event)">
+        <div class="field"><label>Nome do servi\u00e7o</label><input name="name" placeholder="Ex: Escova, Manicure, Maquiagem" required /></div>
+        <div class="field-row">
+          <div class="field"><label>Categoria</label><input name="category" placeholder="Cabelo, Unhas, Maquiagem..." required /></div>
+          <div class="field"><label>Pre\u00e7o</label><input name="price" inputmode="decimal" placeholder="69,90" required /></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Dura\u00e7\u00e3o em minutos</label><input name="duration" type="number" min="5" step="5" value="60" required /></div>
+          <div class="field"><label>Anteced\u00eancia m\u00ednima</label><select name="minAdvanceMinutes">${[30,60,120,240,720,1440,2880,4320].map(m => `<option value="${m}">${formatAdvance(m)}</option>`).join('')}</select></div>
+        </div>
+        <button class="btn brand full" type="submit">Adicionar servi\u00e7o</button>
+      </form>
+      <div class="setup-list">
+        ${data.services.map(s => `<div class="setup-item"><strong>${esc(s.name)}</strong><span>${money(s.price)} \u00b7 ${s.duration} min</span><button class="btn small danger" onclick="Bella.deleteSetupService('${s.id}')">Excluir</button></div>`).join('') || `<div class="empty">Nenhum servi\u00e7o cadastrado ainda.</div>`}
+      </div>
+      <div class="actions vertical">
+        <button class="btn brand full" onclick="Bella.nextSetupStep()" ${data.services.length ? '' : 'disabled'}>Continuar para profissionais</button>
+        <button class="btn secondary full" onclick="Bella.prevSetupStep()">Voltar</button>
+      </div>
+    `;
+  }
+
+  function renderSetupProfessionals(salon, data) {
+    return `
+      <section class="header setup-header">
+        <div class="eyebrow">Passo 3 de 4</div>
+        <h1>Cadastre profissionais</h1>
+        <p>Selecione a unidade e os servi\u00e7os que cada profissional realiza.</p>
+      </section>
+      <form class="setup-form" onsubmit="Bella.saveSetupProfessional(event)">
+        <div class="field"><label>Nome da profissional</label><input name="name" placeholder="Ex: Ana Clara" required /></div>
+        <div class="field"><label>Telefone</label><input name="phone" inputmode="tel" placeholder="(27) 99999-9999" /></div>
+        <div class="field"><label>Unidade</label><select name="unitId" required>${data.units.map(u => `<option value="${u.id}">${esc(u.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>Especialidade</label><input name="specialty" placeholder="Ex: Cabelo, unhas, maquiagem" /></div>
+        <div class="field"><label>Servi\u00e7os que realiza</label><div class="check-grid">${data.services.map(s => `<label><input type="checkbox" name="services" value="${s.id}"> ${esc(s.name)}</label>`).join('')}</div></div>
+        <button class="btn brand full" type="submit">Adicionar profissional</button>
+      </form>
+      <div class="setup-list">
+        ${data.professionals.map(p => {
+          const unit = data.units.find(u => u.id === p.unitId);
+          const serviceNames = (p.services || []).map(id => data.services.find(s => s.id === id)?.name).filter(Boolean).join(', ');
+          return `<div class="setup-item"><strong>${esc(p.name)}</strong><span>${esc(unit?.name || 'Unidade n\u00e3o definida')}<br>${esc(serviceNames || 'Sem servi\u00e7os')}</span><button class="btn small danger" onclick="Bella.deleteSetupProfessional('${p.id}')">Excluir</button></div>`;
+        }).join('') || `<div class="empty">Nenhuma profissional cadastrada ainda.</div>`}
+      </div>
+      <div class="actions vertical">
+        <button class="btn brand full" onclick="Bella.nextSetupStep()" ${data.professionals.length ? '' : 'disabled'}>Continuar para hor\u00e1rios</button>
+        <button class="btn secondary full" onclick="Bella.prevSetupStep()">Voltar</button>
+      </div>
+    `;
+  }
+
+  function renderSetupSchedules(salon, data) {
+    return `
+      <section class="header setup-header">
+        <div class="eyebrow">Passo 4 de 4</div>
+        <h1>Defina os hor\u00e1rios</h1>
+        <p>Escolha os dias de trabalho, hor\u00e1rio de entrada, sa\u00edda e intervalo de cada profissional.</p>
+      </section>
+      <div class="setup-list">
+        ${data.professionals.map(p => `
+          <form class="setup-item setup-schedule" onsubmit="Bella.saveSetupSchedule(event, '${p.id}')">
+            <strong>${esc(p.name)}</strong>
+            <span>${esc(data.units.find(u => u.id === p.unitId)?.name || '')}</span>
+            <div class="check-grid days">
+              ${WEEK_DAYS.map(day => `<label><input type="checkbox" name="workDays" value="${day.value}" ${(p.workDays || [1,2,3,4,5,6]).includes(day.value) ? 'checked' : ''}> ${day.short}</label>`).join('')}
+            </div>
+            <div class="field-row">
+              <div class="field"><label>Entrada</label><input type="time" name="start" value="${esc(p.start || '09:00')}" required></div>
+              <div class="field"><label>Sa\u00edda</label><input type="time" name="end" value="${esc(p.end || '18:00')}" required></div>
+            </div>
+            <div class="field-row">
+              <div class="field"><label>In\u00edcio intervalo</label><input type="time" name="lunchStart" value="${esc(p.lunchStart || '12:30')}"></div>
+              <div class="field"><label>Fim intervalo</label><input type="time" name="lunchEnd" value="${esc(p.lunchEnd || '13:30')}"></div>
+            </div>
+            <button class="btn secondary full" type="submit">Salvar hor\u00e1rio</button>
+          </form>`).join('')}
+      </div>
+      <div class="actions vertical">
+        <button class="btn brand full" onclick="Bella.finishSetup()">Finalizar configura\u00e7\u00e3o</button>
+        <button class="btn secondary full" onclick="Bella.prevSetupStep()">Voltar</button>
+      </div>
     `;
   }
 
@@ -1887,12 +2053,184 @@
           <div class="admin-card"><div class="stat-label">Agendamentos</div><div class="stat-number">${totalAppointments}</div></div>
           <div class="admin-card"><div class="stat-label">Plano principal</div><div class="stat-number">Premium</div></div>
         </div>
-        <section class="section"><h2>Sal\u00f5es cadastrados</h2><button class="btn small brand" onclick="Bella.openAdminCreateSalon()">Novo sal\u00e3o</button></section>
+        <section class="section"><h2>Sal\u00f5es cadastrados</h2><button class="btn small brand" onclick="Bella.openAdminCreateSalon, saveSetupUnit, deleteSetupUnit, saveSetupService, deleteSetupService, saveSetupProfessional, deleteSetupProfessional, saveSetupSchedule, nextSetupStep, prevSetupStep, finishSetup()">Novo sal\u00e3o</button></section>
         <div class="list">
           ${salons.map(s => `<article class="item"><div class="avatar">${initials(s.name)}</div><div class="item-main"><div class="item-title">${esc(s.name)} <span class="badge ${s.status === 'ativo' ? 'success' : 'danger'}">${esc(s.status)}</span></div><div class="item-meta">/${esc(s.slug)} \u00b7 ${esc(s.plan)} \u00b7 ${esc(s.whatsapp)}</div><div class="actions" style="margin-top:10px"><button class="btn small secondary" onclick="Bella.toggleSalonStatus('${s.id}')">${s.status === 'ativo' ? 'Bloquear' : 'Ativar'}</button><button class="btn small secondary" onclick="Bella.copyText('${bookingUrl(s.slug)}')">Copiar agenda</button></div></div></article>`).join('')}
         </div>
       </main>
     `;
+  }
+
+
+  function currentSetupSalonTarget() {
+    const salon = currentSalon();
+    if (!salon) return null;
+    return salon;
+  }
+
+  function setSetupStep(step) {
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    const db = getDb();
+    const target = db.salons.find(s => s.id === salon.id);
+    target.setupStep = Math.max(1, Math.min(4, Number(step || 1)));
+    saveDb(db);
+    render();
+  }
+
+  function nextSetupStep() {
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    setSetupStep(Number(salon.setupStep || 1) + 1);
+  }
+
+  function prevSetupStep() {
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    setSetupStep(Number(salon.setupStep || 1) - 1);
+  }
+
+  function saveSetupUnit(event) {
+    event.preventDefault();
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    const data = new FormData(event.target);
+    const db = getDb();
+    db.units = db.units || [];
+    db.units.push({
+      id: uid('unit'),
+      salonId: salon.id,
+      name: String(data.get('name') || '').trim(),
+      address: String(data.get('address') || '').trim(),
+      phone: normalizePhone(data.get('phone') || ''),
+      active: true,
+      createdAt: new Date().toISOString()
+    });
+    saveDb(db);
+    toast('Unidade adicionada.');
+    render();
+  }
+
+  function deleteSetupUnit(id) {
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    const db = getDb();
+    const used = db.professionals.some(p => p.unitId === id);
+    if (used) return toast('Esta unidade possui profissional vinculado.');
+    db.units = (db.units || []).filter(u => u.id !== id);
+    saveDb(db);
+    render();
+  }
+
+  function saveSetupService(event) {
+    event.preventDefault();
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    const data = new FormData(event.target);
+    const categoryName = String(data.get('category') || 'Outros').trim();
+    const db = getDb();
+    let cat = db.categories.find(c => c.salonId === salon.id && c.name.toLowerCase() === categoryName.toLowerCase());
+    if (!cat) {
+      cat = { id: uid('cat'), salonId: salon.id, name: categoryName };
+      db.categories.push(cat);
+    }
+    db.services.push({
+      id: uid('srv'),
+      salonId: salon.id,
+      categoryId: cat.id,
+      name: String(data.get('name') || '').trim(),
+      price: Number(String(data.get('price') || '0').replace('.', '').replace(',', '.')) || 0,
+      duration: Number(data.get('duration') || 60),
+      minAdvanceMinutes: Number(data.get('minAdvanceMinutes') || 120),
+      buffer: 10,
+      active: true,
+      commissionType: 'percent',
+      commissionValue: 40,
+      products: []
+    });
+    saveDb(db);
+    toast('Servi\u00e7o adicionado.');
+    render();
+  }
+
+  function deleteSetupService(id) {
+    const db = getDb();
+    db.services = db.services.filter(s => s.id !== id);
+    db.professionals.forEach(p => { p.services = (p.services || []).filter(sid => sid !== id); });
+    saveDb(db);
+    render();
+  }
+
+  function saveSetupProfessional(event) {
+    event.preventDefault();
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    const data = new FormData(event.target);
+    const services = data.getAll('services');
+    if (!services.length) return toast('Selecione pelo menos um servi\u00e7o.');
+    const db = getDb();
+    db.professionals.push({
+      id: uid('pro'),
+      salonId: salon.id,
+      unitId: String(data.get('unitId') || ''),
+      name: String(data.get('name') || '').trim(),
+      phone: normalizePhone(data.get('phone') || ''),
+      specialty: String(data.get('specialty') || '').trim(),
+      services,
+      workDays: [1,2,3,4,5,6],
+      start: '09:00',
+      end: '18:00',
+      lunchStart: '12:30',
+      lunchEnd: '13:30',
+      commissionDefault: 40,
+      color: '#C89B7B',
+      active: true
+    });
+    saveDb(db);
+    toast('Profissional adicionada.');
+    render();
+  }
+
+  function deleteSetupProfessional(id) {
+    const db = getDb();
+    db.professionals = db.professionals.filter(p => p.id !== id);
+    saveDb(db);
+    render();
+  }
+
+  function saveSetupSchedule(event, professionalId) {
+    event.preventDefault();
+    const data = new FormData(event.target);
+    const db = getDb();
+    const p = db.professionals.find(x => x.id === professionalId);
+    if (!p) return;
+    const workDays = data.getAll('workDays').map(Number);
+    if (!workDays.length) return toast('Selecione pelo menos um dia.');
+    p.workDays = workDays;
+    p.start = String(data.get('start') || '09:00');
+    p.end = String(data.get('end') || '18:00');
+    p.lunchStart = String(data.get('lunchStart') || '');
+    p.lunchEnd = String(data.get('lunchEnd') || '');
+    p.weeklySchedule = defaultWeeklySchedule(p);
+    saveDb(db);
+    toast('Hor\u00e1rio salvo.');
+    render();
+  }
+
+  function finishSetup() {
+    const salon = currentSetupSalonTarget();
+    if (!salon) return;
+    const data = salonData(salon.id);
+    if (!data.units.length) return toast('Cadastre pelo menos uma unidade.');
+    if (!data.services.length) return toast('Cadastre pelo menos um servi\u00e7o.');
+    if (!data.professionals.length) return toast('Cadastre pelo menos uma profissional.');
+    const db = getDb();
+    const target = db.salons.find(s => s.id === salon.id);
+    target.setupCompleted = true;
+    target.setupStep = 4;
+    saveDb(db);
+    toast('Configura\u00e7\u00e3o finalizada.');
+    render();
   }
 
   function login(event) {
@@ -2706,7 +3044,7 @@
     render();
   }
 
-  function openAdminCreateSalon() {
+  function openAdminCreateSalon, saveSetupUnit, deleteSetupUnit, saveSetupService, deleteSetupService, saveSetupProfessional, deleteSetupProfessional, saveSetupSchedule, nextSetupStep, prevSetupStep, finishSetup() {
     const user = currentUser();
     if (!user || user.role !== 'super_admin') return;
     const name = prompt('Nome do sal\u00e3o:');
@@ -2729,7 +3067,7 @@
     updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, deleteClient, deleteService, deleteProfessional, saveFinancial, saveProduct, startSubscriptionPayment, startPublicSubscriptionPayment, saveScheduleException, deleteScheduleException, toggleExceptionScope,
     adjustStock, saveSettings, copyBookingLink, openBookingLink, shareBookingLink, copyText, togglePublicService, setPublicItemDraft, addPublicItem, removePublicItem,
     setAppointmentItemDraft, addAppointmentItem, removeAppointmentItem,
-    setPublic, setAppointmentDraft, toggleAppointmentService, confirmPublicBooking, openClient, addHairHistoryPrompt, toast, goLogin, toggleSalonStatus, openAdminCreateSalon
+    setPublic, setAppointmentDraft, toggleAppointmentService, confirmPublicBooking, openClient, addHairHistoryPrompt, toast, goLogin, toggleSalonStatus, openAdminCreateSalon, saveSetupUnit, deleteSetupUnit, saveSetupService, deleteSetupService, saveSetupProfessional, deleteSetupProfessional, saveSetupSchedule, nextSetupStep, prevSetupStep, finishSetup
   };
 
   window.addEventListener('popstate', render);

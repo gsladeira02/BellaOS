@@ -223,3 +223,15 @@ Arquivo alterado:
 ```txt
 public/app.js
 ```
+
+
+## Assistente inicial obrigatório
+
+Ao entrar pela primeira vez, antes do painel principal, o BellaOS agora mostra um fluxo de configuração:
+
+1. Cadastrar unidades, com endereço e telefone.
+2. Cadastrar serviços.
+3. Cadastrar profissionais, selecionando unidade e serviços.
+4. Cadastrar horários de cada profissional.
+
+O painel principal só é liberado depois que esse fluxo é finalizado.
