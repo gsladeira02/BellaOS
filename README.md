@@ -235,3 +235,14 @@ Ao entrar pela primeira vez, antes do painel principal, o BellaOS agora mostra u
 4. Cadastrar horários de cada profissional.
 
 O painel principal só é liberado depois que esse fluxo é finalizado.
+
+
+## Correção de tela em branco e senha no cadastro
+
+Correções desta versão:
+
+- Corrigido erro de JavaScript que deixava o site em branco.
+- O cadastro agora pede criação de senha e confirmação de senha.
+- A cliente cria a senha antes de ir para o pagamento.
+- Depois do pagamento, ela acessa com o e-mail e senha criados no cadastro.
+- A conta fica pendente até o pagamento ser finalizado.

@@ -592,3 +592,9 @@ html, body, input, button, select, textarea {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+
+/* Ajuste cadastro com senha */
+.signup-box .field.two-cols {
+  align-items: start;
+}

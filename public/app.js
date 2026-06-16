@@ -103,6 +103,9 @@
     if (['cancelado', 'bloqueado'].includes(status)) {
       return { locked: true, dueDate, graceDate: dueDate ? addDaysToISO(dueDate, 3) : '', reason: 'Assinatura cancelada ou bloqueada.' };
     }
+    if (status === 'pendente' && !salon.subscriptionPaidAt) {
+      return { locked: true, dueDate: dueDate || todayISO(), graceDate: dueDate ? addDaysToISO(dueDate, 3) : '', reason: 'Pagamento pendente.' };
+    }
     if (!dueDate) return { locked: false, dueDate: '', graceDate: '' };
     const graceDate = addDaysToISO(dueDate, 3);
     const today = todayISO();
@@ -128,6 +131,7 @@
     salon.subscriptionDueDate = addMonthsISOFrom(start, plan.cycleMonths);
     salon.subscriptionGraceUntil = addDaysToISO(salon.subscriptionDueDate, 3);
     salon.subscriptionOrderNsu = orderNsu || salon.subscriptionOrderNsu || '';
+    salon.subscriptionPaidAt = new Date().toISOString();
     salon.subscriptionUpdatedAt = new Date().toISOString();
     saveDb(db);
     return true;
@@ -660,10 +664,15 @@
     let activatedText = 'Em instantes sua assinatura ser\u00e1 atualizada no BellaOS.';
     try {
       const internal = JSON.parse(localStorage.getItem('bellaos.last_internal_checkout') || '{}');
+      const publicCheckout = JSON.parse(localStorage.getItem('bellaos.last_public_checkout') || '{}');
       const user = currentUser();
-      if (user?.salonId && internal?.salonId === user.salonId) {
-        activateSalonSubscription(user.salonId, internal.planId || 'mensal', orderNsu || internal.orderNsu || '');
-        const plan = getPlan(internal.planId || 'mensal');
+      const salonId = user?.salonId || internal?.salonId || publicCheckout?.salonId;
+      const planId = internal?.planId || publicCheckout?.planId || 'mensal';
+      const userId = user?.id || publicCheckout?.userId || '';
+      if (salonId) {
+        activateSalonSubscription(salonId, planId, orderNsu || internal.orderNsu || publicCheckout.orderNsu || '');
+        if (userId) setSession(userId);
+        const plan = getPlan(planId);
         activatedText = `Assinatura ${plan.name} ativada. Pr\u00f3ximo vencimento em ${brDate(addMonthsISOFrom(todayISO(), plan.cycleMonths))}.`;
       }
     } catch (error) {
@@ -681,7 +690,7 @@
           <div class="card-sub">${orderNsu ? `Pedido: ${esc(orderNsu)}` : 'Pedido enviado para confirma\u00e7\u00e3o.'}</div>
           <div class="actions vertical" style="margin-top:14px">
             ${receiptUrl ? `<a class="btn secondary full" href="${esc(receiptUrl)}" target="_blank" rel="noopener">Ver comprovante</a>` : ''}
-            <button class="btn brand full" onclick="Bella.goLogin()">Voltar ao BellaOS</button>
+            <button class="btn brand full" onclick="Bella.goLogin()">Continuar no BellaOS</button>
           </div>
         </div>
       </main>
@@ -777,6 +786,17 @@
                 </div>
               </div>
 
+              <div class="field two-cols">
+                <div>
+                  <label>Crie uma senha</label>
+                  <input name="password" type="password" minlength="6" autocomplete="new-password" placeholder="M\u00ednimo 6 caracteres" required />
+                </div>
+                <div>
+                  <label>Confirmar senha</label>
+                  <input name="confirmPassword" type="password" minlength="6" autocomplete="new-password" placeholder="Repita a senha" required />
+                </div>
+              </div>
+
               <div class="signup-section-title">Dados do sal\u00e3o</div>
               <div class="field">
                 <label>Nome do sal\u00e3o</label>
@@ -794,7 +814,7 @@
               </div>
 
               <button class="btn brand full" type="submit">Continuar para pagamento</button>
-              <div class="helper-text">A assinatura renova conforme o plano escolhido. O acesso permanece liberado at\u00e9 3 dias ap\u00f3s o vencimento se o pagamento n\u00e3o for identificado.</div>
+              <div class="helper-text">Crie sua senha agora. Depois do pagamento, voc\u00ea entra com este e-mail e senha. O acesso permanece liberado at\u00e9 3 dias ap\u00f3s o vencimento.</div>
             </form>
           </div>
         </section>
@@ -2053,7 +2073,7 @@
           <div class="admin-card"><div class="stat-label">Agendamentos</div><div class="stat-number">${totalAppointments}</div></div>
           <div class="admin-card"><div class="stat-label">Plano principal</div><div class="stat-number">Premium</div></div>
         </div>
-        <section class="section"><h2>Sal\u00f5es cadastrados</h2><button class="btn small brand" onclick="Bella.openAdminCreateSalon, saveSetupUnit, deleteSetupUnit, saveSetupService, deleteSetupService, saveSetupProfessional, deleteSetupProfessional, saveSetupSchedule, nextSetupStep, prevSetupStep, finishSetup()">Novo sal\u00e3o</button></section>
+        <section class="section"><h2>Sal\u00f5es cadastrados</h2><button class="btn small brand" onclick="Bella.openAdminCreateSalon()">Novo sal\u00e3o</button></section>
         <div class="list">
           ${salons.map(s => `<article class="item"><div class="avatar">${initials(s.name)}</div><div class="item-main"><div class="item-title">${esc(s.name)} <span class="badge ${s.status === 'ativo' ? 'success' : 'danger'}">${esc(s.status)}</span></div><div class="item-meta">/${esc(s.slug)} \u00b7 ${esc(s.plan)} \u00b7 ${esc(s.whatsapp)}</div><div class="actions" style="margin-top:10px"><button class="btn small secondary" onclick="Bella.toggleSalonStatus('${s.id}')">${s.status === 'ativo' ? 'Bloquear' : 'Ativar'}</button><button class="btn small secondary" onclick="Bella.copyText('${bookingUrl(s.slug)}')">Copiar agenda</button></div></div></article>`).join('')}
         </div>
@@ -2799,7 +2819,9 @@
     const adminCpf = String(formData.adminCpf || '').replace(/\D/g, '');
     const adminBirthDate = String(formData.adminBirthDate || '').trim();
     const adminPhone = normalizePhone(formData.adminPhone || '');
-    const adminEmail = String(formData.adminEmail || '').trim();
+    const adminEmail = String(formData.adminEmail || '').trim().toLowerCase();
+    const password = String(formData.password || '');
+    const confirmPassword = String(formData.confirmPassword || '');
 
     const salonName = String(formData.salonName || 'Novo sal\u00e3o BellaOS').trim();
     const salonCnpj = String(formData.salonCnpj || '').replace(/\D/g, '');
@@ -2809,14 +2831,88 @@
       toast('Preencha todos os campos obrigat\u00f3rios.');
       return;
     }
+    if (password.length < 6) return toast('A senha precisa ter pelo menos 6 caracteres.');
+    if (password !== confirmPassword) return toast('As senhas n\u00e3o conferem.');
+
+    const db = getDb();
+    const existingUser = db.users.find(u => String(u.email || '').toLowerCase() === adminEmail);
+    if (existingUser) {
+      toast('Este e-mail j\u00e1 possui cadastro. Use o login ou outro e-mail.');
+      return;
+    }
+
+    const salonId = uid('salon');
+    const userId = uid('user');
+    let baseSlug = slugify(salonName) || 'novo-salao';
+    let slug = baseSlug;
+    let i = 2;
+    while (db.salons.some(s => s.slug === slug)) slug = `${baseSlug}-${i++}`;
 
     const orderNsu = `bellaos-${plan.id}-${Date.now()}`;
+    const nextDueDate = addMonthsISOFrom(todayISO(), plan.cycleMonths);
+    const graceUntil = addDaysToISO(nextDueDate, 3);
+
+    db.salons.push({
+      id: salonId,
+      name: salonName,
+      slug,
+      logoUrl: '/assets/logo-mark.svg',
+      whatsapp: salonPhone,
+      address: '',
+      cnpj: salonCnpj,
+      adminCpf,
+      adminBirthDate,
+      adminPhone,
+      openingStart: '09:00',
+      openingEnd: '19:00',
+      minAdvanceMinutes: 120,
+      bufferMinutes: 10,
+      allowSameDay: true,
+      allowAnyProfessional: true,
+      showPrices: true,
+      bookingEnabled: true,
+      color: '#C89B7B',
+      status: 'ativo',
+      plan: BELLAOS_PLAN_NAME,
+      subscriptionStatus: 'pendente',
+      subscriptionPlanId: plan.id,
+      subscriptionPlanName: plan.name,
+      subscriptionPrice: plan.amountCents / 100,
+      subscriptionCycleMonths: plan.cycleMonths,
+      subscriptionInstallments: plan.installments,
+      subscriptionInstallmentCents: plan.installmentCents,
+      subscriptionDueDate: nextDueDate,
+      subscriptionGraceUntil: graceUntil,
+      subscriptionOrderNsu: orderNsu,
+      infinitePayHandle: handle,
+      setupCompleted: false,
+      setupStep: 1,
+      createdAt: new Date().toISOString()
+    });
+
+    db.users.push({
+      id: userId,
+      salonId,
+      name: adminName,
+      email: adminEmail,
+      password,
+      role: 'owner',
+      mustChangePassword: false,
+      isDemo: false,
+      createdAt: new Date().toISOString()
+    });
+
+    db.units = db.units || [];
+    saveDb(db);
+    setSession(userId);
+
     const payload = {
       handle,
       order_nsu: orderNsu,
       salon: {
+        id: salonId,
         name: salonName,
-        slug: slugify(salonName) || 'novo-salao',
+        slug,
         phone_number: salonPhone ? `+55${salonPhone}` : undefined,
         cnpj: salonCnpj || undefined
       },
@@ -2833,13 +2929,14 @@
         installments: plan.installments,
         installment_cents: plan.installmentCents,
         amount_cents: plan.amountCents,
-        next_due_date: addMonthsISOFrom(todayISO(), plan.cycleMonths),
-        grace_until: addDaysToISO(addMonthsISOFrom(todayISO(), plan.cycleMonths), 3),
+        next_due_date: nextDueDate,
+        grace_until: graceUntil,
         admin_name: adminName,
         admin_cpf: adminCpf,
         admin_birth_date: adminBirthDate,
         admin_phone: adminPhone,
         admin_email: adminEmail,
+        salon_id: salonId,
         salon_name: salonName,
         salon_cnpj: salonCnpj,
         salon_phone: salonPhone
@@ -2865,13 +2962,23 @@
       const result = await response.json().catch(() => ({}));
       if (!response.ok || !result.url) throw new Error(result.error || 'N\u00e3o foi poss\u00edvel gerar o checkout.');
 
+      const latestDb = getDb();
+      const target = latestDb.salons.find(s => s.id === salonId);
+      if (target) {
+        target.subscriptionCheckoutUrl = result.url;
+        target.subscriptionUpdatedAt = new Date().toISOString();
+        saveDb(latestDb);
+      }
+
       localStorage.setItem('bellaos.last_public_checkout', JSON.stringify({
         orderNsu,
+        salonId,
+        userId,
         planId: plan.id,
         planName: plan.name,
         cycleMonths: plan.cycleMonths,
-        nextDueDate: addMonthsISOFrom(todayISO(), plan.cycleMonths),
-        graceUntil: addDaysToISO(addMonthsISOFrom(todayISO(), plan.cycleMonths), 3),
+        nextDueDate,
+        graceUntil,
         adminName,
         adminCpf,
         adminBirthDate,
@@ -2883,12 +2990,19 @@
         checkoutUrl: result.url,
         createdAt: new Date().toISOString()
       }));
+      localStorage.setItem('bellaos.last_internal_checkout', JSON.stringify({ orderNsu, salonId, planId: plan.id, createdAt: new Date().toISOString() }));
 
       window.open(result.url, '_blank');
-      toast('Checkout aberto em uma nova aba.');
+      toast('Cadastro criado. Finalize o pagamento para liberar o painel.');
     } catch (error) {
       console.error(error);
+      const rollback = getDb();
+      rollback.users = rollback.users.filter(u => u.id !== userId);
+      rollback.salons = rollback.salons.filter(s => s.id !== salonId);
+      saveDb(rollback);
+      localStorage.removeItem(SESSION_KEY);
       toast(error.message || 'Erro ao gerar pagamento InfinitePay.');
+      render();
     }
   }
 
@@ -3044,7 +3158,7 @@
     render();
   }
 
-  function openAdminCreateSalon, saveSetupUnit, deleteSetupUnit, saveSetupService, deleteSetupService, saveSetupProfessional, deleteSetupProfessional, saveSetupSchedule, nextSetupStep, prevSetupStep, finishSetup() {
+  function openAdminCreateSalon() {
     const user = currentUser();
     if (!user || user.role !== 'super_admin') return;
     const name = prompt('Nome do sal\u00e3o:');
