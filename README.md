@@ -246,3 +246,16 @@ Correções desta versão:
 - A cliente cria a senha antes de ir para o pagamento.
 - Depois do pagamento, ela acessa com o e-mail e senha criados no cadastro.
 - A conta fica pendente até o pagamento ser finalizado.
+
+
+## Troca de plano com pagamento pendente
+
+Regra adicionada:
+
+- Se a cliente se cadastrou e não pagou, ela pode trocar de plano.
+- O sistema não cria outra conta com o mesmo e-mail.
+- O plano pendente é atualizado.
+- Um novo checkout é gerado.
+- O checkout anterior fica substituído.
+- Só o último `order_nsu` salvo no salão pode ativar a assinatura.
+- O retorno da InfinitePay agora inclui `order_nsu` na URL de confirmação para validar se o pagamento é do checkout atual.

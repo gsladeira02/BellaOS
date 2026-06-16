@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
 
     const payload = {
       handle,
-      redirect_url: `${baseUrl}/pagamento-concluido`,
+      redirect_url: `${baseUrl}/pagamento-concluido?order_nsu=${encodeURIComponent(orderNsu)}`,
       webhook_url: `${baseUrl}/api/infinitepay-webhook`,
       order_nsu: orderNsu,
       customer: {

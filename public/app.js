@@ -116,7 +116,19 @@
   function activateSalonSubscription(salonId, planId, orderNsu = '') {
     const db = getDb();
     const salon = db.salons.find(s => s.id === salonId);
-    if (!salon) return false;
+    if (!salon) return { ok: false, reason: 'Sal\u00e3o n\u00e3o encontrado.' };
+
+    const receivedOrder = String(orderNsu || '').trim();
+    const currentOrder = String(salon.subscriptionOrderNsu || '').trim();
+
+    if (receivedOrder && currentOrder && receivedOrder !== currentOrder) {
+      return {
+        ok: false,
+        outdated: true,
+        reason: 'Este link de pagamento foi substitu\u00eddo por um checkout mais recente.'
+      };
+    }
+
     const plan = getPlan(planId || salon.subscriptionPlanId || 'mensal');
     const start = todayISO();
     salon.plan = BELLAOS_PLAN_NAME;
@@ -130,11 +142,11 @@
     salon.subscriptionStartedAt = start;
     salon.subscriptionDueDate = addMonthsISOFrom(start, plan.cycleMonths);
     salon.subscriptionGraceUntil = addDaysToISO(salon.subscriptionDueDate, 3);
-    salon.subscriptionOrderNsu = orderNsu || salon.subscriptionOrderNsu || '';
+    salon.subscriptionOrderNsu = receivedOrder || currentOrder || '';
     salon.subscriptionPaidAt = new Date().toISOString();
     salon.subscriptionUpdatedAt = new Date().toISOString();
     saveDb(db);
-    return true;
+    return { ok: true, plan, dueDate: salon.subscriptionDueDate };
   }
 
   function planCardsHtml(inputName = 'planId', selected = 'mensal') {
@@ -661,7 +673,9 @@
     const params = new URLSearchParams(window.location.search);
     const orderNsu = params.get('order_nsu') || '';
     const receiptUrl = params.get('receipt_url') || '';
+    let title = 'Obrigada!';
     let activatedText = 'Em instantes sua assinatura ser\u00e1 atualizada no BellaOS.';
+    let outdated = false;
     try {
       const internal = JSON.parse(localStorage.getItem('bellaos.last_internal_checkout') || '{}');
       const publicCheckout = JSON.parse(localStorage.getItem('bellaos.last_public_checkout') || '{}');
@@ -669,11 +683,17 @@
       const salonId = user?.salonId || internal?.salonId || publicCheckout?.salonId;
       const planId = internal?.planId || publicCheckout?.planId || 'mensal';
       const userId = user?.id || publicCheckout?.userId || '';
+      const receivedOrder = orderNsu || internal?.orderNsu || publicCheckout?.orderNsu || '';
       if (salonId) {
-        activateSalonSubscription(salonId, planId, orderNsu || internal.orderNsu || publicCheckout.orderNsu || '');
-        if (userId) setSession(userId);
-        const plan = getPlan(planId);
-        activatedText = `Assinatura ${plan.name} ativada. Pr\u00f3ximo vencimento em ${brDate(addMonthsISOFrom(todayISO(), plan.cycleMonths))}.`;
+        const result = activateSalonSubscription(salonId, planId, receivedOrder);
+        if (result.outdated) {
+          outdated = true;
+          title = 'Checkout substitu\u00eddo';
+          activatedText = 'Este link de pagamento n\u00e3o \u00e9 mais o pedido atual da assinatura. Gere um novo checkout na tela de regulariza\u00e7\u00e3o.';
+        } else if (result.ok) {
+          if (userId) setSession(userId);
+          activatedText = `Assinatura ${result.plan.name} ativada. Pr\u00f3ximo vencimento em ${brDate(result.dueDate)}.`;
+        }
       }
     } catch (error) {
       console.warn(error);
@@ -681,16 +701,16 @@
     app.innerHTML = `
       <main class="booking-shell">
         <section class="public-hero">
-          <div class="public-hero-logo"><img src="/assets/logo-mark.svg" alt="BellaOS"><div><div class="public-brand">Pagamento recebido</div><p>BellaOS Completo</p></div></div>
-          <h1>Obrigada!</h1>
-          <p>Seu pagamento foi conclu\u00eddo na InfinitePay. ${activatedText}</p>
+          <div class="public-hero-logo"><img src="/assets/logo-mark.svg" alt="BellaOS"><div><div class="public-brand">${outdated ? 'Pagamento n\u00e3o aplicado' : 'Pagamento recebido'}</div><p>BellaOS Completo</p></div></div>
+          <h1>${title}</h1>
+          <p>${outdated ? activatedText : `Seu pagamento foi conclu\u00eddo na InfinitePay. ${activatedText}`}</p>
         </section>
         <div class="card">
           <div class="card-title">Resumo</div>
           <div class="card-sub">${orderNsu ? `Pedido: ${esc(orderNsu)}` : 'Pedido enviado para confirma\u00e7\u00e3o.'}</div>
           <div class="actions vertical" style="margin-top:14px">
             ${receiptUrl ? `<a class="btn secondary full" href="${esc(receiptUrl)}" target="_blank" rel="noopener">Ver comprovante</a>` : ''}
-            <button class="btn brand full" onclick="Bella.goLogin()">Continuar no BellaOS</button>
+            <button class="btn brand full" onclick="Bella.goLogin()">${outdated ? 'Voltar e gerar novo checkout' : 'Continuar no BellaOS'}</button>
           </div>
         </div>
       </main>
@@ -2804,7 +2824,116 @@
   }
 
 
-  async function startPublicSubscriptionPayment(event) {
+  
+  async function generateCheckoutForSalon({ salonId, userId, planId, customer, salonDataInput, source = 'internal' }) {
+    const db = getDb();
+    const salon = db.salons.find(s => s.id === salonId);
+    const user = db.users.find(u => u.id === userId);
+    if (!salon || !user) throw new Error('Cadastro n\u00e3o encontrado.');
+    const plan = getPlan(planId || salon.subscriptionPlanId || 'mensal');
+    const handle = String(salon.infinitePayHandle || DEFAULT_INFINITEPAY_HANDLE || '').replace(/^\$/, '').trim();
+    if (!handle) throw new Error('InfiniteTag n\u00e3o configurada.');
+
+    const previousOrder = salon.subscriptionOrderNsu || '';
+    const orderNsu = `bellaos-${salon.slug}-${plan.id}-${Date.now()}`;
+    const nextDueDate = addMonthsISOFrom(todayISO(), plan.cycleMonths);
+    const graceUntil = addDaysToISO(nextDueDate, 3);
+
+    salon.subscriptionStatus = 'pendente';
+    salon.subscriptionPlanId = plan.id;
+    salon.subscriptionPlanName = plan.name;
+    salon.subscriptionPrice = plan.amountCents / 100;
+    salon.subscriptionCycleMonths = plan.cycleMonths;
+    salon.subscriptionInstallments = plan.installments;
+    salon.subscriptionInstallmentCents = plan.installmentCents;
+    salon.subscriptionDueDate = nextDueDate;
+    salon.subscriptionGraceUntil = graceUntil;
+    salon.subscriptionPreviousOrderNsu = previousOrder || salon.subscriptionPreviousOrderNsu || '';
+    salon.subscriptionReplacedOrders = [...(salon.subscriptionReplacedOrders || []), previousOrder].filter(Boolean);
+    salon.subscriptionOrderNsu = orderNsu;
+    salon.subscriptionCheckoutUrl = '';
+    salon.subscriptionPaidAt = '';
+    salon.subscriptionUpdatedAt = new Date().toISOString();
+    saveDb(db);
+
+    const payload = {
+      handle,
+      order_nsu: orderNsu,
+      salon: {
+        id: salon.id,
+        name: salon.name,
+        slug: salon.slug,
+        phone_number: salon.whatsapp ? `+55${normalizePhone(salon.whatsapp)}` : undefined,
+        cnpj: salon.cnpj || undefined,
+        ...(salonDataInput || {})
+      },
+      customer: {
+        name: customer?.name || user.name,
+        email: customer?.email || user.email,
+        phone_number: customer?.phone_number || (salon.adminPhone ? `+55${normalizePhone(salon.adminPhone)}` : undefined)
+      },
+      metadata: {
+        recurrence: true,
+        source,
+        replaces_order_nsu: previousOrder || '',
+        plan_id: plan.id,
+        plan_name: plan.name,
+        cycle_months: plan.cycleMonths,
+        installments: plan.installments,
+        installment_cents: plan.installmentCents,
+        amount_cents: plan.amountCents,
+        next_due_date: nextDueDate,
+        grace_until: graceUntil,
+        salon_id: salon.id,
+        salon_name: salon.name
+      },
+      plan: {
+        id: plan.id,
+        name: `${BELLAOS_PLAN_NAME} - ${plan.name}`,
+        price: plan.amountCents,
+        display: plan.displayText,
+        recurrence: true,
+        cycle_months: plan.cycleMonths,
+        installments: plan.installments
+      }
+    };
+
+    const response = await fetch('/api/infinitepay-checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok || !result.url) throw new Error(result.error || 'N\u00e3o foi poss\u00edvel gerar o checkout.');
+
+    const latestDb = getDb();
+    const target = latestDb.salons.find(s => s.id === salon.id);
+    if (target) {
+      target.subscriptionCheckoutUrl = result.url;
+      target.subscriptionUpdatedAt = new Date().toISOString();
+      saveDb(latestDb);
+    }
+
+    const checkoutInfo = {
+      orderNsu,
+      previousOrder,
+      salonId: salon.id,
+      userId: user.id,
+      planId: plan.id,
+      planName: plan.name,
+      cycleMonths: plan.cycleMonths,
+      nextDueDate,
+      graceUntil,
+      checkoutUrl: result.url,
+      createdAt: new Date().toISOString()
+    };
+    localStorage.setItem('bellaos.last_internal_checkout', JSON.stringify(checkoutInfo));
+    if (source === 'public') localStorage.setItem('bellaos.last_public_checkout', JSON.stringify(checkoutInfo));
+    return { url: result.url, orderNsu, plan, previousOrder };
+  }
+
+
+async function startPublicSubscriptionPayment(event) {
     event?.preventDefault?.();
     const form = event?.target;
     const formData = form ? Object.fromEntries(new FormData(form).entries()) : {};
@@ -2837,8 +2966,35 @@
     const db = getDb();
     const existingUser = db.users.find(u => String(u.email || '').toLowerCase() === adminEmail);
     if (existingUser) {
-      toast('Este e-mail j\u00e1 possui cadastro. Use o login ou outro e-mail.');
-      return;
+      const existingSalon = db.salons.find(s => s.id === existingUser.salonId);
+      if (!existingSalon) {
+        toast('Este e-mail j\u00e1 possui cadastro. Use o login ou outro e-mail.');
+        return;
+      }
+      if (existingSalon.subscriptionStatus === 'ativo') {
+        toast('Este e-mail j\u00e1 possui assinatura ativa. Use o login.');
+        return;
+      }
+
+      try {
+        toast('Atualizando plano pendente e gerando novo checkout...');
+        setSession(existingUser.id);
+        const result = await generateCheckoutForSalon({
+          salonId: existingSalon.id,
+          userId: existingUser.id,
+          planId: plan.id,
+          source: 'public',
+          customer: { name: existingUser.name, email: existingUser.email, phone_number: adminPhone ? `+55${adminPhone}` : undefined },
+          salonDataInput: { name: existingSalon.name, slug: existingSalon.slug }
+        });
+        window.open(result.url, '_blank');
+        toast('Novo checkout gerado. O link anterior foi substitu\u00eddo.');
+        return;
+      } catch (error) {
+        console.error(error);
+        toast(error.message || 'Erro ao atualizar o plano pendente.');
+        return;
+      }
     }
 
     const salonId = uid('salon');
@@ -2847,10 +3003,6 @@
     let slug = baseSlug;
     let i = 2;
     while (db.salons.some(s => s.slug === slug)) slug = `${baseSlug}-${i++}`;
-
-    const orderNsu = `bellaos-${plan.id}-${Date.now()}`;
-    const nextDueDate = addMonthsISOFrom(todayISO(), plan.cycleMonths);
-    const graceUntil = addDaysToISO(nextDueDate, 3);
 
     db.salons.push({
       id: salonId,
@@ -2881,9 +3033,10 @@
       subscriptionCycleMonths: plan.cycleMonths,
       subscriptionInstallments: plan.installments,
       subscriptionInstallmentCents: plan.installmentCents,
-      subscriptionDueDate: nextDueDate,
-      subscriptionGraceUntil: graceUntil,
-      subscriptionOrderNsu: orderNsu,
+      subscriptionDueDate: addMonthsISOFrom(todayISO(), plan.cycleMonths),
+      subscriptionGraceUntil: addDaysToISO(addMonthsISOFrom(todayISO(), plan.cycleMonths), 3),
+      subscriptionOrderNsu: '',
+      subscriptionReplacedOrders: [],
       infinitePayHandle: handle,
       setupCompleted: false,
       setupStep: 1,
@@ -2906,79 +3059,20 @@
     saveDb(db);
     setSession(userId);
 
-    const payload = {
-      handle,
-      order_nsu: orderNsu,
-      salon: {
-        id: salonId,
-        name: salonName,
-        slug,
-        phone_number: salonPhone ? `+55${salonPhone}` : undefined,
-        cnpj: salonCnpj || undefined
-      },
-      customer: {
-        name: adminName,
-        email: adminEmail,
-        phone_number: adminPhone ? `+55${adminPhone}` : undefined
-      },
-      metadata: {
-        recurrence: true,
-        plan_id: plan.id,
-        plan_name: plan.name,
-        cycle_months: plan.cycleMonths,
-        installments: plan.installments,
-        installment_cents: plan.installmentCents,
-        amount_cents: plan.amountCents,
-        next_due_date: nextDueDate,
-        grace_until: graceUntil,
-        admin_name: adminName,
-        admin_cpf: adminCpf,
-        admin_birth_date: adminBirthDate,
-        admin_phone: adminPhone,
-        admin_email: adminEmail,
-        salon_id: salonId,
-        salon_name: salonName,
-        salon_cnpj: salonCnpj,
-        salon_phone: salonPhone
-      },
-      plan: {
-        id: plan.id,
-        name: `${BELLAOS_PLAN_NAME} - ${plan.name}`,
-        price: plan.amountCents,
-        display: plan.displayText,
-        recurrence: true,
-        cycle_months: plan.cycleMonths,
-        installments: plan.installments
-      }
-    };
-
     try {
       toast('Gerando link de pagamento...');
-      const response = await fetch('/api/infinitepay-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.url) throw new Error(result.error || 'N\u00e3o foi poss\u00edvel gerar o checkout.');
-
-      const latestDb = getDb();
-      const target = latestDb.salons.find(s => s.id === salonId);
-      if (target) {
-        target.subscriptionCheckoutUrl = result.url;
-        target.subscriptionUpdatedAt = new Date().toISOString();
-        saveDb(latestDb);
-      }
-
-      localStorage.setItem('bellaos.last_public_checkout', JSON.stringify({
-        orderNsu,
+      const result = await generateCheckoutForSalon({
         salonId,
         userId,
         planId: plan.id,
-        planName: plan.name,
-        cycleMonths: plan.cycleMonths,
-        nextDueDate,
-        graceUntil,
+        source: 'public',
+        customer: { name: adminName, email: adminEmail, phone_number: adminPhone ? `+55${adminPhone}` : undefined },
+        salonDataInput: { name: salonName, slug, cnpj: salonCnpj || undefined, phone_number: salonPhone ? `+55${salonPhone}` : undefined }
+      });
+
+      const publicCheckout = JSON.parse(localStorage.getItem('bellaos.last_public_checkout') || '{}');
+      localStorage.setItem('bellaos.last_public_checkout', JSON.stringify({
+        ...publicCheckout,
         adminName,
         adminCpf,
         adminBirthDate,
@@ -2986,11 +3080,8 @@
         adminEmail,
         salonName,
         salonCnpj,
-        salonPhone,
-        checkoutUrl: result.url,
-        createdAt: new Date().toISOString()
+        salonPhone
       }));
-      localStorage.setItem('bellaos.last_internal_checkout', JSON.stringify({ orderNsu, salonId, planId: plan.id, createdAt: new Date().toISOString() }));
 
       window.open(result.url, '_blank');
       toast('Cadastro criado. Finalize o pagamento para liberar o painel.');
@@ -3010,65 +3101,17 @@
     const user = currentUser();
     const salon = currentSalon();
     if (!user || !salon) return;
-    const handle = salon.infinitePayHandle || DEFAULT_INFINITEPAY_HANDLE || '';
-    if (!handle) return toast('Cadastre sua InfiniteTag em Configura\u00e7\u00f5es.');
-    const plan = getPlan(planId || salon.subscriptionPlanId || 'mensal');
-    const orderNsu = `bellaos-${salon.slug}-${plan.id}-${Date.now()}`;
-    const payload = {
-      handle,
-      order_nsu: orderNsu,
-      salon: { id: salon.id, name: salon.name, slug: salon.slug },
-      customer: { name: user.name, email: user.email, phone_number: `+55${normalizePhone(salon.whatsapp || '')}` },
-      metadata: {
-        recurrence: true,
-        plan_id: plan.id,
-        plan_name: plan.name,
-        cycle_months: plan.cycleMonths,
-        installments: plan.installments,
-        installment_cents: plan.installmentCents,
-        amount_cents: plan.amountCents,
-        next_due_date: addMonthsISOFrom(todayISO(), plan.cycleMonths),
-        grace_until: addDaysToISO(addMonthsISOFrom(todayISO(), plan.cycleMonths), 3)
-      },
-      plan: {
-        id: plan.id,
-        name: `${BELLAOS_PLAN_NAME} - ${plan.name}`,
-        price: plan.amountCents,
-        display: plan.displayText,
-        recurrence: true,
-        cycle_months: plan.cycleMonths,
-        installments: plan.installments
-      }
-    };
     try {
-      toast('Gerando link de pagamento...');
-      const response = await fetch('/api/infinitepay-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
+      toast('Gerando novo checkout...');
+      const result = await generateCheckoutForSalon({
+        salonId: salon.id,
+        userId: user.id,
+        planId: planId || salon.subscriptionPlanId || 'mensal',
+        source: 'internal',
+        customer: { name: user.name, email: user.email, phone_number: salon.whatsapp ? `+55${normalizePhone(salon.whatsapp || '')}` : undefined }
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.url) throw new Error(result.error || 'N\u00e3o foi poss\u00edvel gerar o checkout.');
-      const db = getDb();
-      const target = db.salons.find(s => s.id === salon.id);
-      if (target) {
-        target.subscriptionStatus = 'pendente';
-        target.subscriptionPlanId = plan.id;
-        target.subscriptionPlanName = plan.name;
-        target.subscriptionPrice = plan.amountCents / 100;
-        target.subscriptionCycleMonths = plan.cycleMonths;
-        target.subscriptionInstallments = plan.installments;
-        target.subscriptionInstallmentCents = plan.installmentCents;
-        target.subscriptionOrderNsu = orderNsu;
-        target.subscriptionCheckoutUrl = result.url;
-        target.subscriptionNextDuePreview = addMonthsISOFrom(todayISO(), plan.cycleMonths);
-        target.subscriptionGracePreview = addDaysToISO(target.subscriptionNextDuePreview, 3);
-        target.subscriptionUpdatedAt = new Date().toISOString();
-        saveDb(db);
-      }
-      localStorage.setItem('bellaos.last_internal_checkout', JSON.stringify({ orderNsu, salonId: salon.id, planId: plan.id, createdAt: new Date().toISOString() }));
       window.open(result.url, '_blank');
-      toast('Link de pagamento aberto.');
+      toast(result.previousOrder ? 'Novo checkout gerado. O link anterior foi substitu\u00eddo.' : 'Link de pagamento aberto.');
       render();
     } catch (error) {
       console.error(error);
