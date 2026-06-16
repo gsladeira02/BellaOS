@@ -1,4 +1,4 @@
-(() => {
+﻿(() => {
   const DB_KEY = 'bellaos.db.v1';
   const SESSION_KEY = 'bellaos.session.v1';
   const PUBLIC_BASE_URL = 'https://bella-os.vercel.app';
@@ -16,7 +16,7 @@
     { id: 'semestral', name: 'Semestral', label: 'Semestral', priceText: '6x de R$ 59,90', displayText: '6x de R$ 59,90', recurrenceText: 'Renova a cada 6 meses', installments: 6, installmentCents: 5990, amountCents: 35940, cycleMonths: 6 },
     { id: 'anual', name: 'Anual', label: 'Anual', priceText: '12x de R$ 39,90', displayText: '12x de R$ 39,90', recurrenceText: 'Renova a cada 12 meses', installments: 12, installmentCents: 3990, amountCents: 47880, cycleMonths: 12 }
   ];
-  const DEFAULT_INFINITEPAY_HANDLE = '';
+  const DEFAULT_INFINITEPAY_HANDLE = 'sistemasos';
   let remoteSyncStarted = false;
   let remoteSaveTimer = null;
   const app = document.getElementById('app');
@@ -2736,3 +2736,4 @@
   startRemoteSync();
   render();
 })();
+
