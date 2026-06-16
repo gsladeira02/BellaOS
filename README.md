@@ -198,3 +198,24 @@ Exemplos de uso:
 - manutenção: bloquear uma data inteira.
 
 A agenda pública e a agenda interna respeitam essas exceções automaticamente no cálculo dos horários disponíveis, inclusive em atendimentos com múltiplos serviços e profissionais diferentes.
+
+## Atualização: InfinitePay e fluidez
+
+Esta versão inclui:
+
+- Tela **Assinatura** dentro do menu **Mais**.
+- Geração de checkout InfinitePay pela rota `/api/infinitepay-checkout`.
+- Webhook preparado em `/api/infinitepay-webhook`.
+- Página de retorno `/pagamento-concluido`.
+- Campo **InfiniteTag InfinitePay** em **Configurações**.
+- Ajustes de fluidez visual, redução de animações desnecessárias e melhoria de navegação mobile.
+
+### Como configurar o InfinitePay
+
+1. Acesse o BellaOS.
+2. Vá em **Mais > Configurações**.
+3. Preencha o campo **InfiniteTag InfinitePay** sem o símbolo `$`.
+4. Vá em **Mais > Assinatura**.
+5. Clique em **Assinar por R$ 69,90/mês**.
+
+A integração cria um link de pagamento na InfinitePay. Para uma assinatura totalmente automática com bloqueio/desbloqueio de salões, o próximo passo é gravar o webhook em uma tabela no Supabase e atualizar o status do salão pelo `order_nsu`.

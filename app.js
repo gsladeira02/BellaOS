@@ -7,6 +7,8 @@
   const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_Urza4wG2be2xxgMzxJrCEQ_ya_uV0z-';
   const SUPABASE_STATE_ID = 'bellaos_app';
   const USE_SUPABASE_SYNC = true;
+  const BELLAOS_PLAN_PRICE_CENTS = 6990;
+  const BELLAOS_PLAN_NAME = 'BellaOS Completo';
   let remoteSyncStarted = false;
   let remoteSaveTimer = null;
   const app = document.getElementById('app');
@@ -271,7 +273,10 @@
         bookingEnabled: true,
         color: '#C89B7B',
         status: 'ativo',
-        plan: 'Premium',
+        plan: 'BellaOS Completo',
+        subscriptionStatus: 'teste',
+        subscriptionPrice: 69.90,
+        infinitePayHandle: '',
         createdAt: new Date().toISOString()
       }],
       users: [
@@ -510,6 +515,10 @@
 
   function render() {
     const path = window.location.pathname;
+    if (path.startsWith('/pagamento-concluido')) {
+      renderPaymentSuccess();
+      return;
+    }
     if (path.startsWith('/agenda/')) {
       renderPublicBooking(path.split('/').filter(Boolean)[1]);
       return;
@@ -532,6 +541,30 @@
     }
 
     renderSalonApp(user);
+  }
+
+
+  function renderPaymentSuccess() {
+    const params = new URLSearchParams(window.location.search);
+    const orderNsu = params.get('order_nsu') || '';
+    const receiptUrl = params.get('receipt_url') || '';
+    app.innerHTML = `
+      <main class="booking-shell">
+        <section class="public-hero">
+          <div class="public-hero-logo"><img src="/assets/logo-mark.svg" alt="BellaOS"><div><div class="public-brand">Pagamento recebido</div><p>BellaOS Completo</p></div></div>
+          <h1>Obrigada!</h1>
+          <p>Seu pagamento foi concluído na InfinitePay. Em instantes sua assinatura será atualizada no BellaOS.</p>
+        </section>
+        <div class="card">
+          <div class="card-title">Resumo</div>
+          <div class="card-sub">${orderNsu ? `Pedido: ${esc(orderNsu)}` : 'Pedido enviado para confirmação.'}</div>
+          <div class="actions vertical" style="margin-top:14px">
+            ${receiptUrl ? `<a class="btn secondary full" href="${esc(receiptUrl)}" target="_blank" rel="noopener">Ver comprovante</a>` : ''}
+            <button class="btn brand full" onclick="Bella.goLogin()">Voltar ao BellaOS</button>
+          </div>
+        </div>
+      </main>
+    `;
   }
 
   function renderLogin() {
@@ -601,7 +634,7 @@
     }
 
     const viewLabels = {
-      home: 'Início', agenda: 'Agenda', clients: 'Clientes', services: 'Serviços', more: 'Mais', professionals: 'Profissionais', finance: 'Financeiro', stock: 'Estoque', commissions: 'Comissões', online: 'Agenda Online', settings: 'Configurações'
+      home: 'Início', agenda: 'Agenda', clients: 'Clientes', services: 'Serviços', more: 'Mais', professionals: 'Profissionais', finance: 'Financeiro', stock: 'Estoque', commissions: 'Comissões', online: 'Agenda Online', subscription: 'Assinatura', settings: 'Configurações'
     };
 
     app.innerHTML = `
@@ -651,6 +684,7 @@
       stock: renderStock,
       commissions: renderCommissions,
       online: renderOnline,
+      subscription: renderSubscription,
       settings: renderSettings
     };
     return (map[view] || renderHome)(user, salon);
@@ -827,6 +861,7 @@
       ['stock','Estoque','Produtos, alertas e baixas'],
       ['commissions','Comissões','Valores a pagar por profissional'],
       ['online','Agenda Online','Link público com nome do salão'],
+      ['subscription','Assinatura','Pagamento do plano pelo InfinitePay'],
       ['settings','Configurações','Antecedência, WhatsApp e dados do salão']
     ];
     return `
@@ -981,6 +1016,61 @@
     `;
   }
 
+
+  function renderSubscription(user, salon) {
+    const statusMap = {
+      ativo: ['success', 'Ativa'],
+      teste: ['muted', 'Em teste'],
+      pendente: ['warn', 'Pagamento pendente'],
+      vencido: ['danger', 'Pagamento vencido'],
+      cancelado: ['danger', 'Cancelada']
+    };
+    const [badge, label] = statusMap[salon.subscriptionStatus || 'teste'] || statusMap.teste;
+    const handle = salon.infinitePayHandle || '';
+    const lastOrder = salon.subscriptionOrderNsu ? `<div class="card-sub">Último pedido: ${esc(salon.subscriptionOrderNsu)}</div>` : '';
+    return `
+      <section class="header">
+        <div class="eyebrow">Assinatura</div>
+        <h1>BellaOS Completo</h1>
+        <p>Plano único com agenda online, clientes, serviços, profissionais, financeiro, estoque, comissões e relatórios.</p>
+      </section>
+
+      <div class="card plan-card">
+        <div class="plan-head">
+          <div>
+            <div class="card-title">Plano atual</div>
+            <div class="card-sub">${esc(BELLAOS_PLAN_NAME)}</div>
+          </div>
+          <span class="badge ${badge}">${label}</span>
+        </div>
+        <div class="price-line">R$ 69,90<span>/mês</span></div>
+        <div class="feature-grid compact">
+          <span>Agenda online</span><span>Clientes</span><span>Serviços</span><span>Profissionais</span><span>Financeiro</span><span>Estoque</span><span>Comissões</span><span>Relatórios</span>
+        </div>
+        ${lastOrder}
+      </div>
+
+      <div class="card">
+        <div class="card-title">Pagamento pela InfinitePay</div>
+        <div class="card-sub">Ao clicar, o BellaOS gera um link de checkout para pagamento do plano mensal e abre a tela segura da InfinitePay.</div>
+        ${handle ? `<div class="copy-box" style="margin-top:12px">InfiniteTag: ${esc(handle)}</div>` : `<div class="empty" style="margin-top:12px">Cadastre sua InfiniteTag em Configurações para gerar o link de pagamento.</div>`}
+        <div class="actions vertical" style="margin-top:14px">
+          <button class="btn brand full" onclick="Bella.startSubscriptionPayment()" ${handle ? '' : 'disabled'}>Assinar por R$ 69,90/mês</button>
+          <button class="btn secondary full" onclick="Bella.navigate('settings')">Configurar InfinitePay</button>
+        </div>
+      </div>
+
+      <div class="card subtle-card">
+        <div class="card-title">Como funciona</div>
+        <div class="steps-list">
+          <div><strong>1</strong><span>O BellaOS cria o pedido do plano mensal.</span></div>
+          <div><strong>2</strong><span>A cliente paga no checkout da InfinitePay por Pix ou cartão.</span></div>
+          <div><strong>3</strong><span>Após o pagamento, o sistema retorna para a página de confirmação.</span></div>
+        </div>
+      </div>
+    `;
+  }
+
   function renderSettings(user, salon) {
     const { scheduleExceptions, professionals } = salonData(salon.id);
     const exceptions = scheduleExceptions.slice().sort((a,b) => a.date.localeCompare(b.date));
@@ -988,7 +1078,7 @@
       <section class="header">
         <div class="eyebrow">Configurações</div>
         <h1>Dados do salão</h1>
-        <p>Altere nome, slug, WhatsApp, endereço e regras de agendamento.</p>
+        <p>Altere nome, slug, WhatsApp, endereço, InfinitePay e regras de agendamento.</p>
       </section>
       <form class="card" onsubmit="Bella.saveSettings(event)">
         <div class="field"><label>Nome do salão</label><input name="name" value="${esc(salon.name)}" required /></div>
@@ -1003,6 +1093,7 @@
         <div class="switch-row"><div><span>Permitir agendamento no mesmo dia</span><small>Respeitando a antecedência mínima.</small></div><input class="checkbox" name="allowSameDay" type="checkbox" ${salon.allowSameDay ? 'checked' : ''}></div>
         <div class="switch-row"><div><span>Mostrar preços na agenda pública</span><small>Ideal para reduzir perguntas no WhatsApp.</small></div><input class="checkbox" name="showPrices" type="checkbox" ${salon.showPrices ? 'checked' : ''}></div>
         <div class="switch-row"><div><span>Agenda pública ativa</span><small>Quando desativada, ninguém consegue marcar pelo link.</small></div><input class="checkbox" name="bookingEnabled" type="checkbox" ${salon.bookingEnabled ? 'checked' : ''}></div>
+        <div class="field"><label>InfiniteTag InfinitePay</label><input name="infinitePayHandle" value="${esc(salon.infinitePayHandle || '')}" placeholder="ex: sua_infinite_tag" /><small>Use a InfiniteTag sem o símbolo $ para gerar links de pagamento da assinatura.</small></div>
         <button class="btn brand full" type="submit">Salvar configurações</button>
       </form>
 
@@ -1956,7 +2047,8 @@
       minAdvanceMinutes: Number(data.get('minAdvanceMinutes')),
       allowSameDay: data.has('allowSameDay'),
       showPrices: data.has('showPrices'),
-      bookingEnabled: data.has('bookingEnabled')
+      bookingEnabled: data.has('bookingEnabled'),
+      infinitePayHandle: String(data.get('infinitePayHandle') || '').replace(/^\$/, '').trim()
     });
     saveDb(db);
     toast('Configurações salvas.');
@@ -2144,6 +2236,47 @@
     }, 120);
   }
 
+
+  async function startSubscriptionPayment() {
+    const user = currentUser();
+    const salon = currentSalon();
+    if (!user || !salon) return;
+    if (!salon.infinitePayHandle) return toast('Cadastre sua InfiniteTag em Configurações.');
+    const orderNsu = `bellaos-${salon.slug}-${Date.now()}`;
+    const payload = {
+      handle: salon.infinitePayHandle,
+      order_nsu: orderNsu,
+      salon: { id: salon.id, name: salon.name, slug: salon.slug },
+      customer: { name: user.name, email: user.email, phone_number: `+55${normalizePhone(salon.whatsapp || '')}` },
+      plan: { name: BELLAOS_PLAN_NAME, price: BELLAOS_PLAN_PRICE_CENTS }
+    };
+    try {
+      toast('Gerando link de pagamento...');
+      const response = await fetch('/api/infinitepay-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result.url) throw new Error(result.error || 'Não foi possível gerar o checkout.');
+      const db = getDb();
+      const target = db.salons.find(s => s.id === salon.id);
+      if (target) {
+        target.subscriptionStatus = 'pendente';
+        target.subscriptionOrderNsu = orderNsu;
+        target.subscriptionCheckoutUrl = result.url;
+        target.subscriptionUpdatedAt = new Date().toISOString();
+        saveDb(db);
+      }
+      window.open(result.url, '_blank');
+      toast('Link de pagamento aberto.');
+      render();
+    } catch (error) {
+      console.error(error);
+      toast(error.message || 'Erro ao gerar pagamento InfinitePay.');
+    }
+  }
+
   function toggleExceptionScope(value) {
     const el = document.querySelector('.exception-professional');
     if (el) el.style.display = value === 'professional' ? '' : 'none';
@@ -2236,7 +2369,7 @@
     const db = getDb();
     const salonId = uid('salon');
     const slug = slugify(name);
-    db.salons.push({ id: salonId, name, slug, logoUrl: '/assets/logo-mark.svg', whatsapp: '', address: '', openingStart: '09:00', openingEnd: '19:00', minAdvanceMinutes: 120, bufferMinutes: 10, allowSameDay: true, allowAnyProfessional: true, showPrices: true, bookingEnabled: true, color: '#C89B7B', status: 'ativo', plan: 'Essencial', createdAt: new Date().toISOString() });
+    db.salons.push({ id: salonId, name, slug, logoUrl: '/assets/logo-mark.svg', whatsapp: '', address: '', openingStart: '09:00', openingEnd: '19:00', minAdvanceMinutes: 120, bufferMinutes: 10, allowSameDay: true, allowAnyProfessional: true, showPrices: true, bookingEnabled: true, color: '#C89B7B', status: 'ativo', plan: 'BellaOS Completo', subscriptionStatus: 'teste', subscriptionPrice: 69.90, infinitePayHandle: '', createdAt: new Date().toISOString() });
     db.users.push({ id: uid('u'), salonId, name: 'Usuária Principal', email, password: 'bella123', role: 'owner', mustChangePassword: true, isDemo: false });
     db.categories.push(...['Cabelo','Unhas','Sobrancelhas','Maquiagem','Penteados','Noivas','Estética','Pacotes'].map(n => ({ id: uid('cat'), salonId, name: n })));
     saveDb(db);
@@ -2246,7 +2379,7 @@
 
   window.Bella = {
     login, changePassword, logout, navigate, openModal, closeModal, setDate, setClientSearch, setServiceFilter,
-    updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, deleteClient, deleteService, deleteProfessional, saveFinancial, saveProduct, saveScheduleException, deleteScheduleException, toggleExceptionScope,
+    updateAppointmentStatus, saveAppointment, saveClient, saveService, saveProfessional, deleteClient, deleteService, deleteProfessional, saveFinancial, saveProduct, startSubscriptionPayment, saveScheduleException, deleteScheduleException, toggleExceptionScope,
     adjustStock, saveSettings, copyBookingLink, openBookingLink, shareBookingLink, copyText, togglePublicService, setPublicItemDraft, addPublicItem, removePublicItem,
     setAppointmentItemDraft, addAppointmentItem, removeAppointmentItem,
     setPublic, setAppointmentDraft, toggleAppointmentService, confirmPublicBooking, openClient, addHairHistoryPrompt, toast, goLogin, toggleSalonStatus, openAdminCreateSalon

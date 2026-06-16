@@ -116,6 +116,37 @@ create table if not exists professional_weekly_schedules (
   unique (professional_id, day_of_week)
 );
 
+
+create table if not exists schedule_exceptions (
+  id uuid primary key default uuid_generate_v4(),
+  salon_id uuid references salons(id) on delete cascade not null,
+  professional_id uuid references professionals(id) on delete cascade,
+  date date not null,
+  closed boolean default false,
+  start_time time,
+  end_time time,
+  break_start time,
+  break_end time,
+  reason text,
+  created_at timestamptz default now(),
+  constraint schedule_exceptions_valid_time check (
+    closed = true
+    or (start_time is not null and end_time is not null and start_time < end_time)
+  ),
+  constraint schedule_exceptions_valid_break check (
+    break_start is null
+    or break_end is null
+    or break_start < break_end
+  ),
+  unique (salon_id, professional_id, date)
+);
+
+create index if not exists idx_schedule_exceptions_salon_date
+  on schedule_exceptions (salon_id, date);
+
+create index if not exists idx_schedule_exceptions_professional_date
+  on schedule_exceptions (professional_id, date);
+
 create table if not exists clients (
   id uuid primary key default uuid_generate_v4(),
   salon_id uuid references salons(id) on delete cascade not null,
@@ -275,3 +306,35 @@ alter table admin_logs enable row level security;
 
 -- Políticas devem ser ajustadas conforme seu auth real. A regra base é:
 -- usuários acessam apenas registros do próprio salon_id, e super_admin acessa todos.
+
+-- BellaOS: pagamentos de assinatura InfinitePay
+create table if not exists subscription_payments (
+  id uuid primary key default uuid_generate_v4(),
+  salon_id uuid references salons(id) on delete cascade,
+  order_nsu text unique not null,
+  provider text default 'infinitepay',
+  status text default 'pending' check (status in ('pending','paid','failed','cancelled')),
+  amount numeric not null default 69.90,
+  checkout_url text,
+  receipt_url text,
+  transaction_nsu text,
+  slug text,
+  raw_payload jsonb default '{}'::jsonb,
+  created_at timestamptz default now(),
+  paid_at timestamptz
+);
+
+alter table subscription_payments enable row level security;
+
+drop policy if exists subscription_payments_select on subscription_payments;
+drop policy if exists subscription_payments_insert on subscription_payments;
+drop policy if exists subscription_payments_update on subscription_payments;
+
+create policy subscription_payments_select on subscription_payments
+  for select using (true);
+
+create policy subscription_payments_insert on subscription_payments
+  for insert with check (true);
+
+create policy subscription_payments_update on subscription_payments
+  for update using (true) with check (true);
