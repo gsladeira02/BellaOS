@@ -11,6 +11,7 @@ module.exports = async function handler(req, res) {
     const plan = body.plan || {};
     const salon = body.salon || {};
     const customer = body.customer || {};
+    const metadata = body.metadata || {};
     const price = Number(plan.price || 6990);
 
     if (!handle) return res.status(400).json({ error: 'InfiniteTag não configurada.' });
@@ -34,7 +35,7 @@ module.exports = async function handler(req, res) {
         {
           quantity: 1,
           price,
-          description: `${plan.name || 'BellaOS Completo'} - ${salon.name || 'Salão'}`
+          description: `${plan.name || 'BellaOS Completo'}${plan.display ? ` (${plan.display})` : ''} - ${salon.name || 'Salão'}`
         }
       ]
     };

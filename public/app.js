@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const DB_KEY = 'bellaos.db.v1';
   const SESSION_KEY = 'bellaos.session.v1';
   const PUBLIC_BASE_URL = 'https://bella-os.vercel.app';
@@ -9,7 +9,14 @@
   const USE_SUPABASE_SYNC = true;
   const BELLAOS_PLAN_PRICE_CENTS = 6990;
   const BELLAOS_PLAN_NAME = 'BellaOS Completo';
-  const DEFAULT_INFINITEPAY_HANDLE = 'sistemasos';
+
+  const BELLAOS_PLANS = [
+    { id: 'mensal', name: 'Mensal', label: 'Mensal', priceText: 'R$ 69,90', displayText: 'R$ 69,90/m\u00eas', recurrenceText: 'Renova a cada 1 m\u00eas', installments: 1, installmentCents: 6990, amountCents: 6990, cycleMonths: 1 },
+    { id: 'trimestral', name: 'Trimestral', label: 'Trimestral', priceText: '3x de R$ 64,90', displayText: '3x de R$ 64,90', recurrenceText: 'Renova a cada 3 meses', installments: 3, installmentCents: 6490, amountCents: 19470, cycleMonths: 3 },
+    { id: 'semestral', name: 'Semestral', label: 'Semestral', priceText: '6x de R$ 59,90', displayText: '6x de R$ 59,90', recurrenceText: 'Renova a cada 6 meses', installments: 6, installmentCents: 5990, amountCents: 35940, cycleMonths: 6 },
+    { id: 'anual', name: 'Anual', label: 'Anual', priceText: '12x de R$ 39,90', displayText: '12x de R$ 39,90', recurrenceText: 'Renova a cada 12 meses', installments: 12, installmentCents: 3990, amountCents: 47880, cycleMonths: 12 }
+  ];
+  const DEFAULT_INFINITEPAY_HANDLE = '';
   let remoteSyncStarted = false;
   let remoteSaveTimer = null;
   const app = document.getElementById('app');
@@ -67,6 +74,76 @@
     return Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   }
 
+
+  function getPlan(planId = 'mensal') {
+    return BELLAOS_PLANS.find(p => p.id === planId) || BELLAOS_PLANS[0];
+  }
+
+  function addMonthsISOFrom(dateISO, months) {
+    const [y, m, d] = String(dateISO || todayISO()).split('-').map(Number);
+    const date = new Date(y, (m || 1) - 1, d || 1);
+    date.setMonth(date.getMonth() + Number(months || 0));
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 10);
+  }
+
+  function addDaysToISO(dateISO, days) {
+    const [y, m, d] = String(dateISO || todayISO()).split('-').map(Number);
+    const date = new Date(y, (m || 1) - 1, d || 1);
+    date.setDate(date.getDate() + Number(days || 0));
+    date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+    return date.toISOString().slice(0, 10);
+  }
+
+  function subscriptionLockInfo(salon) {
+    if (!salon) return { locked: false };
+    const status = salon.subscriptionStatus || 'teste';
+    const dueDate = salon.subscriptionDueDate || salon.subscriptionCurrentPeriodEnd || '';
+    const paidStatuses = ['ativo', 'teste'];
+    if (['cancelado', 'bloqueado'].includes(status)) {
+      return { locked: true, dueDate, graceDate: dueDate ? addDaysToISO(dueDate, 3) : '', reason: 'Assinatura cancelada ou bloqueada.' };
+    }
+    if (!dueDate) return { locked: false, dueDate: '', graceDate: '' };
+    const graceDate = addDaysToISO(dueDate, 3);
+    const today = todayISO();
+    const locked = today > graceDate && !paidStatuses.includes(status);
+    return { locked, dueDate, graceDate, reason: locked ? 'Pagamento vencido h\u00e1 mais de 3 dias.' : '' };
+  }
+
+  function activateSalonSubscription(salonId, planId, orderNsu = '') {
+    const db = getDb();
+    const salon = db.salons.find(s => s.id === salonId);
+    if (!salon) return false;
+    const plan = getPlan(planId || salon.subscriptionPlanId || 'mensal');
+    const start = todayISO();
+    salon.plan = BELLAOS_PLAN_NAME;
+    salon.subscriptionPlanId = plan.id;
+    salon.subscriptionPlanName = plan.name;
+    salon.subscriptionStatus = 'ativo';
+    salon.subscriptionPrice = plan.amountCents / 100;
+    salon.subscriptionCycleMonths = plan.cycleMonths;
+    salon.subscriptionInstallments = plan.installments;
+    salon.subscriptionInstallmentCents = plan.installmentCents;
+    salon.subscriptionStartedAt = start;
+    salon.subscriptionDueDate = addMonthsISOFrom(start, plan.cycleMonths);
+    salon.subscriptionGraceUntil = addDaysToISO(salon.subscriptionDueDate, 3);
+    salon.subscriptionOrderNsu = orderNsu || salon.subscriptionOrderNsu || '';
+    salon.subscriptionUpdatedAt = new Date().toISOString();
+    saveDb(db);
+    return true;
+  }
+
+  function planCardsHtml(inputName = 'planId', selected = 'mensal') {
+    return `<div class="plan-options">${BELLAOS_PLANS.map(plan => `
+      <label class="plan-option ${selected === plan.id ? 'selected' : ''}">
+        <input type="radio" name="${inputName}" value="${plan.id}" ${selected === plan.id ? 'checked' : ''}>
+        <span class="plan-option-name">${esc(plan.label)}</span>
+        <strong>${esc(plan.priceText)}</strong>
+        <small>${esc(plan.recurrenceText)}</small>
+      </label>`).join('')}</div>`;
+  }
+
+
   function timeToMin(t) {
     const [h, m] = String(t || '00:00').split(':').map(Number);
     return h * 60 + m;
@@ -82,11 +159,11 @@
   const WEEK_DAYS = [
     { value: 0, label: 'Domingo', short: 'Dom' },
     { value: 1, label: 'Segunda', short: 'Seg' },
-    { value: 2, label: 'TerÃ§a', short: 'Ter' },
+    { value: 2, label: 'Ter\u00e7a', short: 'Ter' },
     { value: 3, label: 'Quarta', short: 'Qua' },
     { value: 4, label: 'Quinta', short: 'Qui' },
     { value: 5, label: 'Sexta', short: 'Sex' },
-    { value: 6, label: 'SÃ¡bado', short: 'SÃ¡b' }
+    { value: 6, label: 'S\u00e1bado', short: 'S\u00e1b' }
   ];
 
   function defaultWeeklySchedule(professional = {}) {
@@ -143,12 +220,12 @@
       const row = weeklySchedule[day.value];
       const start = timeToMin(row.start);
       const end = timeToMin(row.end);
-      if (start >= end) return `Revise o horÃ¡rio de ${day.label}: inÃ­cio precisa ser antes do fim.`;
+      if (start >= end) return `Revise o hor\u00e1rio de ${day.label}: in\u00edcio precisa ser antes do fim.`;
       if (row.breakStart && row.breakEnd) {
         const breakStart = timeToMin(row.breakStart);
         const breakEnd = timeToMin(row.breakEnd);
         if (breakStart >= breakEnd) return `Revise o intervalo de ${day.label}.`;
-        if (breakStart < start || breakEnd > end) return `O intervalo de ${day.label} precisa ficar dentro do horÃ¡rio de trabalho.`;
+        if (breakStart < start || breakEnd > end) return `O intervalo de ${day.label} precisa ficar dentro do hor\u00e1rio de trabalho.`;
       }
     }
     return '';
@@ -209,10 +286,10 @@
     const breaks = new Set(activeDays.map(day => `${weekly[day.value].breakStart || ''}-${weekly[day.value].breakEnd || ''}`));
     if (hours.size === 1 && breaks.size === 1) {
       const row = weekly[activeDays[0].value];
-      const interval = row.breakStart && row.breakEnd ? ` Â· Intervalo ${row.breakStart} Ã s ${row.breakEnd}` : ' Â· Sem intervalo';
-      return `${labels} Â· ${row.start} Ã s ${row.end}${interval}`;
+      const interval = row.breakStart && row.breakEnd ? ` \u00b7 Intervalo ${row.breakStart} \u00e0s ${row.breakEnd}` : ' \u00b7 Sem intervalo';
+      return `${labels} \u00b7 ${row.start} \u00e0s ${row.end}${interval}`;
     }
-    return `${labels} Â· horÃ¡rios por dia configurados`;
+    return `${labels} \u00b7 hor\u00e1rios por dia configurados`;
   }
 
   function initials(name) {
@@ -275,15 +352,22 @@
         color: '#C89B7B',
         status: 'ativo',
         plan: 'BellaOS Completo',
-        subscriptionStatus: 'teste',
+        subscriptionStatus: 'ativo',
+        subscriptionPlanId: 'mensal',
+        subscriptionPlanName: 'Mensal',
         subscriptionPrice: 69.90,
+        subscriptionCycleMonths: 1,
+        subscriptionInstallments: 1,
+        subscriptionInstallmentCents: 6990,
+        subscriptionDueDate: addMonthsISOFrom(todayISO(), 1),
+        subscriptionGraceUntil: addDaysToISO(addMonthsISOFrom(todayISO(), 1), 3),
         infinitePayHandle: '',
         createdAt: new Date().toISOString()
       }],
       users: [
         { id: 'u_owner', salonId, name: 'Dona do Studio Bella', email: 'contato@studiobella.com', password: 'bella123', role: 'owner', mustChangePassword: false, isDemo: false },
         { id: 'u_first', salonId, name: 'Primeiro Acesso', email: 'primeiro@studiobella.com', password: 'trocar123', role: 'owner', mustChangePassword: true, isDemo: false },
-        { id: 'u_demo', salonId, name: 'Conta DemonstraÃ§Ã£o', email: 'demo@bellaos.com', password: 'demo123', role: 'owner', mustChangePassword: false, isDemo: false },
+        { id: 'u_demo', salonId, name: 'Conta Demonstra\u00e7\u00e3o', email: 'demo@bellaos.com', password: 'demo123', role: 'owner', mustChangePassword: false, isDemo: false },
         { id: 'u_admin', salonId: null, name: 'Admin BellaOS', email: 'admin@bellaos.com', password: 'admin123', role: 'super_admin', mustChangePassword: false, isDemo: false }
       ],
       categories: [
@@ -293,13 +377,13 @@
         { id: 'cat_make', salonId, name: 'Maquiagem' },
         { id: 'cat_penteados', salonId, name: 'Penteados' },
         { id: 'cat_noivas', salonId, name: 'Noivas' },
-        { id: 'cat_estetica', salonId, name: 'EstÃ©tica' },
+        { id: 'cat_estetica', salonId, name: 'Est\u00e9tica' },
         { id: 'cat_pacotes', salonId, name: 'Pacotes' }
       ],
       services: [
         { id: 'srv_escova', salonId, categoryId: 'cat_cabelo', name: 'Escova modelada', price: 75, duration: 45, minAdvanceMinutes: 60, buffer: 10, active: true, commissionType: 'percent', commissionValue: 40, products: [{ productId: 'prod_shampoo', qty: 20 }, { productId: 'prod_mascara', qty: 15 }] },
         { id: 'srv_corte', salonId, categoryId: 'cat_cabelo', name: 'Corte feminino', price: 95, duration: 60, minAdvanceMinutes: 120, buffer: 10, active: true, commissionType: 'percent', commissionValue: 40, products: [] },
-        { id: 'srv_hidratacao', salonId, categoryId: 'cat_cabelo', name: 'HidrataÃ§Ã£o premium', price: 120, duration: 70, minAdvanceMinutes: 120, buffer: 10, active: true, commissionType: 'percent', commissionValue: 38, products: [{ productId: 'prod_mascara', qty: 35 }] },
+        { id: 'srv_hidratacao', salonId, categoryId: 'cat_cabelo', name: 'Hidrata\u00e7\u00e3o premium', price: 120, duration: 70, minAdvanceMinutes: 120, buffer: 10, active: true, commissionType: 'percent', commissionValue: 38, products: [{ productId: 'prod_mascara', qty: 35 }] },
         { id: 'srv_progressiva', salonId, categoryId: 'cat_cabelo', name: 'Progressiva', price: 260, duration: 180, minAdvanceMinutes: 1440, buffer: 20, active: true, commissionType: 'percent', commissionValue: 35, products: [{ productId: 'prod_progressiva', qty: 80 }] },
         { id: 'srv_luzes', salonId, categoryId: 'cat_cabelo', name: 'Luzes / Mechas', price: 390, duration: 240, minAdvanceMinutes: 2880, buffer: 20, active: true, commissionType: 'percent', commissionValue: 35, products: [{ productId: 'prod_ox', qty: 80 }, { productId: 'prod_tonalizante', qty: 1 }] },
         { id: 'srv_mani', salonId, categoryId: 'cat_unhas', name: 'Manicure', price: 38, duration: 50, minAdvanceMinutes: 60, buffer: 5, active: true, commissionType: 'fixed', commissionValue: 16, products: [{ productId: 'prod_esmalte', qty: 1 }] },
@@ -310,17 +394,17 @@
         { id: 'srv_noiva', salonId, categoryId: 'cat_noivas', name: 'Pacote noiva', price: 850, duration: 300, minAdvanceMinutes: 4320, buffer: 30, active: true, commissionType: 'percent', commissionValue: 35, products: [] }
       ],
       professionals: [
-        { id: 'pro_ana', salonId, name: 'Ana Clara', phone: '27988881111', specialty: 'Cabelo e quÃ­mica', services: ['srv_escova','srv_corte','srv_hidratacao','srv_progressiva','srv_luzes','srv_noiva'], workDays: [1,2,3,4,5,6], start: '09:00', end: '18:00', lunchStart: '12:30', lunchEnd: '13:30', commissionDefault: 40, color: '#C89B7B', active: true },
+        { id: 'pro_ana', salonId, name: 'Ana Clara', phone: '27988881111', specialty: 'Cabelo e qu\u00edmica', services: ['srv_escova','srv_corte','srv_hidratacao','srv_progressiva','srv_luzes','srv_noiva'], workDays: [1,2,3,4,5,6], start: '09:00', end: '18:00', lunchStart: '12:30', lunchEnd: '13:30', commissionDefault: 40, color: '#C89B7B', active: true },
         { id: 'pro_bia', salonId, name: 'Beatriz Lima', phone: '27988882222', specialty: 'Unhas e sobrancelhas', services: ['srv_mani','srv_pedi','srv_sobrancelha'], workDays: [1,2,3,4,5,6], start: '09:30', end: '19:00', lunchStart: '13:00', lunchEnd: '14:00', commissionDefault: 42, color: '#8B5E4E', active: true },
         { id: 'pro_lu', salonId, name: 'Luiza Rocha', phone: '27988883333', specialty: 'Maquiagem e penteado', services: ['srv_make','srv_penteado','srv_noiva','srv_escova'], workDays: [2,3,4,5,6], start: '10:00', end: '19:00', lunchStart: '14:00', lunchEnd: '15:00', commissionDefault: 40, color: '#4F8A6B', active: true }
       ],
       clients: [
-        { id: 'cli_julia', salonId, name: 'Juliana Martins', phone: '27991112222', email: 'juliana@email.com', preferredProfessionalId: 'pro_ana', notes: 'Prefere escova modelada. Couro cabeludo sensÃ­vel.', formula: '7.1 + OX 20 volumes', visits: 5, totalSpent: 950, createdAt: new Date().toISOString() },
+        { id: 'cli_julia', salonId, name: 'Juliana Martins', phone: '27991112222', email: 'juliana@email.com', preferredProfessionalId: 'pro_ana', notes: 'Prefere escova modelada. Couro cabeludo sens\u00edvel.', formula: '7.1 + OX 20 volumes', visits: 5, totalSpent: 950, createdAt: new Date().toISOString() },
         { id: 'cli_maria', salonId, name: 'Maria Fernanda', phone: '27992223333', email: '', preferredProfessionalId: 'pro_bia', notes: 'Gosta de esmalte claro.', formula: '', visits: 3, totalSpent: 270, createdAt: new Date().toISOString() },
         { id: 'cli_larissa', salonId, name: 'Larissa Alves', phone: '27993334444', email: '', preferredProfessionalId: 'pro_lu', notes: 'Cliente para eventos e maquiagem.', formula: '', visits: 2, totalSpent: 420, createdAt: new Date().toISOString() }
       ],
       hairHistory: [
-        { id: 'hist_1', salonId, clientId: 'cli_julia', date: addDaysISO(-18), service: 'Morena iluminada', formula: 'Tonalizante 7.1 + OX 20', products: 'Tonalizante 7.1, mÃ¡scara pÃ³s-quÃ­mica', professionalId: 'pro_ana', notes: 'Pontas sensibilizadas. Evitar descoloraÃ§Ã£o forte na prÃ³xima sessÃ£o.' }
+        { id: 'hist_1', salonId, clientId: 'cli_julia', date: addDaysISO(-18), service: 'Morena iluminada', formula: 'Tonalizante 7.1 + OX 20', products: 'Tonalizante 7.1, m\u00e1scara p\u00f3s-qu\u00edmica', professionalId: 'pro_ana', notes: 'Pontas sensibilizadas. Evitar descolora\u00e7\u00e3o forte na pr\u00f3xima sess\u00e3o.' }
       ],
       appointments: [
         { id: 'app_1', salonId, clientId: 'cli_julia', professionalId: 'pro_ana', serviceIds: ['srv_escova','srv_hidratacao'], date: todayISO(), start: '10:00', end: '12:05', status: 'confirmado', total: 195, duration: 125, notes: 'Cliente pediu escova modelada.', createdBy: 'u_owner', createdAt: new Date().toISOString() },
@@ -330,10 +414,10 @@
       ],
       products: [
         { id: 'prod_shampoo', salonId, name: 'Shampoo profissional', category: 'Shampoo', unit: 'ml', qty: 1400, minQty: 500, cost: 0.08, supplier: 'Distribuidora Beauty' },
-        { id: 'prod_mascara', salonId, name: 'MÃ¡scara hidrataÃ§Ã£o', category: 'MÃ¡scara', unit: 'ml', qty: 420, minQty: 500, cost: 0.18, supplier: 'Distribuidora Beauty' },
+        { id: 'prod_mascara', salonId, name: 'M\u00e1scara hidrata\u00e7\u00e3o', category: 'M\u00e1scara', unit: 'ml', qty: 420, minQty: 500, cost: 0.18, supplier: 'Distribuidora Beauty' },
         { id: 'prod_progressiva', salonId, name: 'Progressiva premium', category: 'Progressiva', unit: 'ml', qty: 820, minQty: 300, cost: 0.65, supplier: 'Hair Pro' },
         { id: 'prod_ox', salonId, name: 'OX 20 volumes', category: 'Oxidante', unit: 'ml', qty: 650, minQty: 300, cost: 0.09, supplier: 'Color Mix' },
-        { id: 'prod_tonalizante', salonId, name: 'Tonalizante 7.1', category: 'ColoraÃ§Ã£o', unit: 'un', qty: 2, minQty: 4, cost: 22, supplier: 'Color Mix' },
+        { id: 'prod_tonalizante', salonId, name: 'Tonalizante 7.1', category: 'Colora\u00e7\u00e3o', unit: 'un', qty: 2, minQty: 4, cost: 22, supplier: 'Color Mix' },
         { id: 'prod_esmalte', salonId, name: 'Esmaltes variados', category: 'Esmalte', unit: 'un', qty: 38, minQty: 15, cost: 6.5, supplier: 'Nails Center' }
       ],
       financial: [
@@ -342,7 +426,7 @@
       ],
       logs: [],
       scheduleExceptions: [
-        { id: 'exc_demo', salonId, date: addDaysISO(7), scope: 'salon', professionalId: '', closed: false, start: '09:00', end: '13:00', breakStart: '', breakEnd: '', reason: 'Funcionamento especial pela manhÃ£' }
+        { id: 'exc_demo', salonId, date: addDaysISO(7), scope: 'salon', professionalId: '', closed: false, start: '09:00', end: '13:00', breakStart: '', breakEnd: '', reason: 'Funcionamento especial pela manh\u00e3' }
       ]
     };
     localStorage.setItem(DB_KEY, JSON.stringify(db));
@@ -499,7 +583,7 @@
   }
 
   function labelStatus(status) {
-    return ({ agendado: 'Agendado', confirmado: 'Confirmado', atendimento: 'Em atendimento', concluido: 'ConcluÃ­do', cancelado: 'Cancelado', falta: 'NÃ£o compareceu' })[status] || status;
+    return ({ agendado: 'Agendado', confirmado: 'Confirmado', atendimento: 'Em atendimento', concluido: 'Conclu\u00eddo', cancelado: 'Cancelado', falta: 'N\u00e3o compareceu' })[status] || status;
   }
 
   function updatePath(path) {
@@ -541,6 +625,13 @@
       return;
     }
 
+    const salon = currentSalon();
+    const lock = subscriptionLockInfo(salon);
+    if (lock.locked) {
+      renderSubscriptionBlocked(user, salon, lock);
+      return;
+    }
+
     renderSalonApp(user);
   }
 
@@ -549,16 +640,28 @@
     const params = new URLSearchParams(window.location.search);
     const orderNsu = params.get('order_nsu') || '';
     const receiptUrl = params.get('receipt_url') || '';
+    let activatedText = 'Em instantes sua assinatura ser\u00e1 atualizada no BellaOS.';
+    try {
+      const internal = JSON.parse(localStorage.getItem('bellaos.last_internal_checkout') || '{}');
+      const user = currentUser();
+      if (user?.salonId && internal?.salonId === user.salonId) {
+        activateSalonSubscription(user.salonId, internal.planId || 'mensal', orderNsu || internal.orderNsu || '');
+        const plan = getPlan(internal.planId || 'mensal');
+        activatedText = `Assinatura ${plan.name} ativada. Pr\u00f3ximo vencimento em ${brDate(addMonthsISOFrom(todayISO(), plan.cycleMonths))}.`;
+      }
+    } catch (error) {
+      console.warn(error);
+    }
     app.innerHTML = `
       <main class="booking-shell">
         <section class="public-hero">
           <div class="public-hero-logo"><img src="/assets/logo-mark.svg" alt="BellaOS"><div><div class="public-brand">Pagamento recebido</div><p>BellaOS Completo</p></div></div>
           <h1>Obrigada!</h1>
-          <p>Seu pagamento foi concluÃ­do na InfinitePay. Em instantes sua assinatura serÃ¡ atualizada no BellaOS.</p>
+          <p>Seu pagamento foi conclu\u00eddo na InfinitePay. ${activatedText}</p>
         </section>
         <div class="card">
           <div class="card-title">Resumo</div>
-          <div class="card-sub">${orderNsu ? `Pedido: ${esc(orderNsu)}` : 'Pedido enviado para confirmaÃ§Ã£o.'}</div>
+          <div class="card-sub">${orderNsu ? `Pedido: ${esc(orderNsu)}` : 'Pedido enviado para confirma\u00e7\u00e3o.'}</div>
           <div class="actions vertical" style="margin-top:14px">
             ${receiptUrl ? `<a class="btn secondary full" href="${esc(receiptUrl)}" target="_blank" rel="noopener">Ver comprovante</a>` : ''}
             <button class="btn brand full" onclick="Bella.goLogin()">Voltar ao BellaOS</button>
@@ -568,6 +671,33 @@
     `;
   }
 
+  function renderSubscriptionBlocked(user, salon, lock) {
+    const selected = salon.subscriptionPlanId || 'mensal';
+    const handle = salon.infinitePayHandle || DEFAULT_INFINITEPAY_HANDLE || '';
+    app.innerHTML = `
+      <main class="login-screen">
+        <section class="login-card auth-card">
+          <div class="login-logo">
+            <img class="logo-mark" src="/assets/logo-mark.svg" alt="BellaOS" />
+            <div>
+              <div class="logo-title">BellaOS</div>
+              <div class="logo-subtitle">Assinatura vencida</div>
+            </div>
+          </div>
+          <h1>Acesso pausado</h1>
+          <p>O pagamento do sal\u00e3o venceu em ${esc(brDate(lock.dueDate))}. O acesso fica liberado somente at\u00e9 3 dias ap\u00f3s o vencimento. Para continuar usando, escolha um plano e regularize a assinatura.</p>
+          ${planCardsHtml('blockedPlanId', selected)}
+          <div class="actions vertical" style="margin-top:14px">
+            <button class="btn brand full" onclick="Bella.startSubscriptionPayment(document.querySelector('input[name=blockedPlanId]:checked')?.value || '${esc(selected)}')" ${handle ? '' : 'disabled'}>Regularizar assinatura</button>
+            <button class="btn secondary full" onclick="Bella.logout()">Sair</button>
+          </div>
+          ${handle ? '' : `<div class="empty" style="margin-top:12px">InfiniteTag n\u00e3o configurada. Fale com o suporte do BellaOS.</div>`}
+        </section>
+      </main>
+    `;
+  }
+
+  
   function renderLogin() {
     app.innerHTML = `
       <main class="login-screen auth-landing">
@@ -576,62 +706,86 @@
             <img class="logo-mark" src="/assets/logo-mark.svg" alt="BellaOS" />
             <div>
               <div class="logo-title">BellaOS</div>
-              <div class="logo-subtitle">GestÃ£o premium para salÃµes</div>
+              <div class="logo-subtitle">Gest\u00e3o premium para sal\u00f5es</div>
             </div>
           </div>
 
           <div class="auth-hero-copy">
-            <span class="mini-badge">Plano Ãºnico</span>
-            <h1>Seu salÃ£o organizado pelo celular</h1>
-            <p>Agenda online, clientes, serviÃ§os, profissionais, financeiro, comissÃµes, estoque e relatÃ³rios em um sistema simples para o dia a dia do salÃ£o.</p>
+            <span class="mini-badge">Planos flex\u00edveis</span>
+            <h1>Seu sal\u00e3o organizado pelo celular</h1>
+            <p>Agenda online, clientes, servi\u00e7os, profissionais, financeiro, comiss\u00f5es, estoque e relat\u00f3rios em um sistema simples para o dia a dia do sal\u00e3o.</p>
           </div>
 
           <div class="auth-pricing-card">
             <div>
               <div class="card-title">BellaOS Completo</div>
-              <div class="card-sub">Tudo liberado em um Ãºnico plano.</div>
+              <div class="card-sub">Escolha a recorr\u00eancia da assinatura.</div>
             </div>
-            <div class="auth-price">R$ 69,90 <span>/mÃªs</span></div>
+            ${planCardsHtml('planId', 'mensal')}
             <div class="auth-feature-list">
               <span>Agenda online</span>
               <span>Clientes</span>
-              <span>ServiÃ§os</span>
+              <span>Servi\u00e7os</span>
               <span>Profissionais</span>
               <span>Financeiro</span>
-              <span>ComissÃµes</span>
+              <span>Comiss\u00f5es</span>
               <span>Estoque</span>
-              <span>RelatÃ³rios</span>
+              <span>Relat\u00f3rios</span>
             </div>
 
             <form class="signup-box" onsubmit="Bella.startPublicSubscriptionPayment(event)">
+              <div class="signup-section-title">Dados do administrador</div>
               <div class="field">
-                <label>Nome do salÃ£o</label>
-                <input name="salonName" placeholder="Ex: Studio Bella" required />
-              </div>
-              <div class="field">
-                <label>Seu nome</label>
-                <input name="name" placeholder="Nome da responsÃ¡vel" required />
+                <label>Nome completo do administrador</label>
+                <input name="adminName" placeholder="Ex: Maria Clara Santos" autocomplete="name" required />
               </div>
               <div class="field two-cols">
                 <div>
-                  <label>E-mail</label>
-                  <input name="email" type="email" placeholder="contato@salao.com.br" required />
+                  <label>CPF</label>
+                  <input name="adminCpf" inputmode="numeric" placeholder="000.000.000-00" autocomplete="off" required />
                 </div>
                 <div>
-                  <label>WhatsApp</label>
-                  <input name="phone" inputmode="tel" placeholder="(27) 99999-9999" required />
+                  <label>Data de nascimento</label>
+                  <input name="adminBirthDate" type="date" required />
                 </div>
               </div>
-              <button class="btn brand full" type="submit">Assinar por R$ 69,90/mÃªs</button>
-              <div class="helper-text">Pagamento seguro pela InfinitePay. ApÃ³s o pagamento, vocÃª configura o acesso do salÃ£o.</div>
+              <div class="field two-cols">
+                <div>
+                  <label>Celular do administrador</label>
+                  <input name="adminPhone" inputmode="tel" placeholder="(27) 99999-9999" autocomplete="tel" required />
+                </div>
+                <div>
+                  <label>E-mail do administrador</label>
+                  <input name="adminEmail" type="email" placeholder="contato@salao.com.br" autocomplete="email" required />
+                </div>
+              </div>
+
+              <div class="signup-section-title">Dados do sal\u00e3o</div>
+              <div class="field">
+                <label>Nome do sal\u00e3o</label>
+                <input name="salonName" placeholder="Ex: Studio Bella" required />
+              </div>
+              <div class="field two-cols">
+                <div>
+                  <label>CNPJ do sal\u00e3o <small>opcional</small></label>
+                  <input name="salonCnpj" inputmode="numeric" placeholder="00.000.000/0000-00" autocomplete="off" />
+                </div>
+                <div>
+                  <label>Celular do sal\u00e3o</label>
+                  <input name="salonPhone" inputmode="tel" placeholder="(27) 99999-9999" required />
+                </div>
+              </div>
+
+              <button class="btn brand full" type="submit">Continuar para pagamento</button>
+              <div class="helper-text">A assinatura renova conforme o plano escolhido. O acesso permanece liberado at\u00e9 3 dias ap\u00f3s o vencimento se o pagamento n\u00e3o for identificado.</div>
             </form>
           </div>
         </section>
 
         <section class="login-card auth-login-card">
-          <div class="section-kicker">JÃ¡ sou cliente</div>
+          <div class="section-kicker">J\u00e1 sou cliente</div>
           <h2>Acesse sua conta</h2>
-          <p>Entre para gerenciar a agenda e o salÃ£o.</p>
+          <p>Entre para gerenciar a agenda e o sal\u00e3o.</p>
           <form onsubmit="Bella.login(event)">
             <div class="field">
               <label>E-mail</label>
@@ -681,12 +835,12 @@
   function renderSalonApp(user) {
     const salon = currentSalon();
     if (!salon) {
-      app.innerHTML = `<main class="login-screen"><section class="login-card"><h1>SalÃ£o nÃ£o encontrado</h1><button class="btn full" onclick="Bella.logout()">Sair</button></section></main>`;
+      app.innerHTML = `<main class="login-screen"><section class="login-card"><h1>Sal\u00e3o n\u00e3o encontrado</h1><button class="btn full" onclick="Bella.logout()">Sair</button></section></main>`;
       return;
     }
 
     const viewLabels = {
-      home: 'InÃ­cio', agenda: 'Agenda', clients: 'Clientes', services: 'ServiÃ§os', more: 'Mais', professionals: 'Profissionais', finance: 'Financeiro', stock: 'Estoque', commissions: 'ComissÃµes', online: 'Agenda Online', subscription: 'Assinatura', settings: 'ConfiguraÃ§Ãµes'
+      home: 'In\u00edcio', agenda: 'Agenda', clients: 'Clientes', services: 'Servi\u00e7os', more: 'Mais', professionals: 'Profissionais', finance: 'Financeiro', stock: 'Estoque', commissions: 'Comiss\u00f5es', online: 'Agenda Online', subscription: 'Assinatura', settings: 'Configura\u00e7\u00f5es'
     };
 
     app.innerHTML = `
@@ -699,7 +853,7 @@
               <div class="topbar-subtitle">${esc(viewLabels[state.view] || 'BellaOS')}</div>
             </div>
           </div>
-          <button class="icon-btn" aria-label="Sair" onclick="Bella.logout()">â†—</button>
+          <button class="icon-btn" aria-label="Sair" onclick="Bella.logout()">\u2197</button>
         </header>
         <main class="page">
           ${renderView(state.view, user, salon)}
@@ -712,11 +866,11 @@
 
   function renderBottomNav() {
     const items = [
-      ['home', 'InÃ­cio', 'âŒ‚'],
-      ['agenda', 'Agenda', 'â–¡'],
-      ['clients', 'Clientes', 'â—Œ'],
-      ['services', 'ServiÃ§os', 'â—‡'],
-      ['more', 'Mais', 'â‰¡']
+      ['home', 'In\u00edcio', '\u2302'],
+      ['agenda', 'Agenda', '\u25a1'],
+      ['clients', 'Clientes', '\u25cc'],
+      ['services', 'Servi\u00e7os', '\u25c7'],
+      ['more', 'Mais', '\u2261']
     ];
     return `<nav class="bottom-nav">${items.map(([key,label,icon]) => `
       <button class="nav-btn ${state.view === key ? 'active' : ''}" onclick="Bella.navigate('${key}')">
@@ -753,21 +907,21 @@
     return `
       <section class="header">
         <div class="eyebrow">BellaOS Premium</div>
-        <h1>OlÃ¡, ${esc(user.name.split(' ')[0])}</h1>
-        <p>Controle o salÃ£o pelo celular: agenda, clientes, profissionais, financeiro, comissÃµes e estoque.</p>
+        <h1>Ol\u00e1, ${esc(user.name.split(' ')[0])}</h1>
+        <p>Controle o sal\u00e3o pelo celular: agenda, clientes, profissionais, financeiro, comiss\u00f5es e estoque.</p>
       </section>
       <section class="grid">
-        <div class="card stat"><div class="stat-label">Agendamentos hoje</div><div class="stat-number">${todays.length}</div><div class="card-sub">${concludedToday.length} concluÃ­do(s)</div></div>
+        <div class="card stat"><div class="stat-label">Agendamentos hoje</div><div class="stat-number">${todays.length}</div><div class="card-sub">${concludedToday.length} conclu\u00eddo(s)</div></div>
         <div class="card stat good"><div class="stat-label">Faturamento</div><div class="stat-number">${money(incomeToday)}</div><div class="card-sub">Hoje</div></div>
         <div class="card stat"><div class="stat-label">Clientes</div><div class="stat-number">${clients.length}</div><div class="card-sub">Base ativa</div></div>
         <div class="card stat ${lowStock.length ? 'warn' : 'good'}"><div class="stat-label">Estoque baixo</div><div class="stat-number">${lowStock.length}</div><div class="card-sub">${lowStock[0] ? esc(lowStock[0].name) : 'Tudo em dia'}</div></div>
       </section>
-      <section class="section"><h2>PrÃ³ximo atendimento</h2><button class="btn small secondary" onclick="Bella.openModal('appointment')">Novo</button></section>
-      ${next ? renderAppointmentItem(next, salon.id, true) : `<div class="empty">Nenhum atendimento prÃ³ximo para hoje.</div>`}
-      <section class="section"><h2>AÃ§Ãµes rÃ¡pidas</h2></section>
+      <section class="section"><h2>Pr\u00f3ximo atendimento</h2><button class="btn small secondary" onclick="Bella.openModal('appointment')">Novo</button></section>
+      ${next ? renderAppointmentItem(next, salon.id, true) : `<div class="empty">Nenhum atendimento pr\u00f3ximo para hoje.</div>`}
+      <section class="section"><h2>A\u00e7\u00f5es r\u00e1pidas</h2></section>
       <div class="grid">
-        <button class="card" onclick="Bella.openModal('appointment')"><div class="card-title">Novo agendamento</div><div class="card-sub">Criar horÃ¡rio interno</div></button>
-        <button class="card" onclick="Bella.navigate('online')"><div class="card-title">Compartilhar agenda</div><div class="card-sub">Link pÃºblico do salÃ£o</div></button>
+        <button class="card" onclick="Bella.openModal('appointment')"><div class="card-title">Novo agendamento</div><div class="card-sub">Criar hor\u00e1rio interno</div></button>
+        <button class="card" onclick="Bella.navigate('online')"><div class="card-title">Compartilhar agenda</div><div class="card-sub">Link p\u00fablico do sal\u00e3o</div></button>
         <button class="card" onclick="Bella.openModal('client')"><div class="card-title">Nova cliente</div><div class="card-sub">Cadastrar ficha</div></button>
         <button class="card" onclick="Bella.navigate('stock')"><div class="card-title">Ver estoque</div><div class="card-sub">Produtos e alertas</div></button>
       </div>
@@ -782,7 +936,7 @@
       <section class="header">
         <div class="eyebrow">Agenda interna</div>
         <h1>${brDate(day)}</h1>
-        <p>Controle horÃ¡rios, status e contato das clientes.</p>
+        <p>Controle hor\u00e1rios, status e contato das clientes.</p>
       </section>
       <div class="card">
         <div class="field" style="margin-bottom:0">
@@ -802,15 +956,15 @@
     const { services, professionals, clients } = salonData(salonId);
     const client = clients.find(c => c.id === a.clientId);
     const pro = professionals.find(p => p.id === a.professionalId);
-    const whats = client?.phone ? `https://wa.me/55${normalizePhone(client.phone)}?text=${encodeURIComponent(`OlÃ¡, ${client.name}! Passando para confirmar seu horÃ¡rio no ${currentSalon()?.name || 'salÃ£o'} dia ${brDate(a.date)} Ã s ${a.start}.`)}` : '#';
+    const whats = client?.phone ? `https://wa.me/55${normalizePhone(client.phone)}?text=${encodeURIComponent(`Ol\u00e1, ${client.name}! Passando para confirmar seu hor\u00e1rio no ${currentSalon()?.name || 'sal\u00e3o'} dia ${brDate(a.date)} \u00e0s ${a.start}.`)}` : '#';
     return `
       <article class="item">
         <div class="avatar">${initials(client?.name || 'Cliente')}</div>
         <div class="item-main">
-          <div class="item-title">${esc(a.start)} Â· ${esc(client?.name || 'Cliente')} ${appointmentStatusBadge(a.status)} ${a.groupTotal > 1 ? `<span class="badge muted">${a.groupIndex}/${a.groupTotal}</span>` : ''}</div>
+          <div class="item-title">${esc(a.start)} \u00b7 ${esc(client?.name || 'Cliente')} ${appointmentStatusBadge(a.status)} ${a.groupTotal > 1 ? `<span class="badge muted">${a.groupIndex}/${a.groupTotal}</span>` : ''}</div>
           <div class="item-meta">
             ${esc(serviceName(a.serviceIds, services))}<br>
-            Profissional: ${esc(pro?.name || 'NÃ£o definida')} Â· ${money(a.total)} Â· ${a.duration} min
+            Profissional: ${esc(pro?.name || 'N\u00e3o definida')} \u00b7 ${money(a.total)} \u00b7 ${a.duration} min
             ${a.groupTotal > 1 ? `<br>Atendimento combinado` : ''}
             ${a.notes ? `<br>Obs: ${esc(a.notes)}` : ''}
           </div>
@@ -834,7 +988,7 @@
       <section class="header">
         <div class="eyebrow">Clientes</div>
         <h1>Ficha completa</h1>
-        <p>HistÃ³rico, preferÃªncias, coloraÃ§Ã£o, observaÃ§Ãµes e atendimentos.</p>
+        <p>Hist\u00f3rico, prefer\u00eancias, colora\u00e7\u00e3o, observa\u00e7\u00f5es e atendimentos.</p>
       </section>
       <div class="card">
         <div class="field" style="margin-bottom:0"><label>Buscar cliente</label><input placeholder="Nome ou WhatsApp" value="${esc(state.clientSearch)}" oninput="Bella.setClientSearch(this.value)" /></div>
@@ -848,7 +1002,7 @@
             <div class="avatar">${initials(c.name)}</div>
             <div class="item-main">
               <div class="item-title">${esc(c.name)}</div>
-              <div class="item-meta">${esc(c.phone)} Â· ${c.visits || 0} visita(s)<br>PreferÃªncia: ${esc(pro?.name || 'Sem preferÃªncia')}${last ? `<br>Ãšltimo: ${brDate(last.date)} Â· ${esc(labelStatus(last.status))}` : ''}</div>
+              <div class="item-meta">${esc(c.phone)} \u00b7 ${c.visits || 0} visita(s)<br>Prefer\u00eancia: ${esc(pro?.name || 'Sem prefer\u00eancia')}${last ? `<br>\u00daltimo: ${brDate(last.date)} \u00b7 ${esc(labelStatus(last.status))}` : ''}</div>
               <div class="actions" style="margin-top:10px">
                 <button class="btn small secondary" type="button" onclick="event.stopPropagation(); Bella.openClient('${c.id}')">Ficha</button>
                 <button class="btn small secondary" type="button" onclick="event.stopPropagation(); Bella.openModal('client',{clientId:'${c.id}'})">Editar</button>
@@ -868,27 +1022,27 @@
     const filtered = services.filter(s => state.serviceFilter === 'Todos' || categories.find(c => c.id === s.categoryId)?.name === state.serviceFilter);
     return `
       <section class="header">
-        <div class="eyebrow">ServiÃ§os e pacotes</div>
-        <h1>CardÃ¡pio do salÃ£o</h1>
-        <p>PreÃ§o, duraÃ§Ã£o, antecedÃªncia mÃ­nima, comissÃ£o e produtos usados.</p>
+        <div class="eyebrow">Servi\u00e7os e pacotes</div>
+        <h1>Card\u00e1pio do sal\u00e3o</h1>
+        <p>Pre\u00e7o, dura\u00e7\u00e3o, anteced\u00eancia m\u00ednima, comiss\u00e3o e produtos usados.</p>
       </section>
       <div class="filters">${names.map(n => `<button class="chip ${state.serviceFilter === n ? 'active' : ''}" onclick="Bella.setServiceFilter('${esc(n)}')">${esc(n)}</button>`).join('')}</div>
       <section class="section"><h2>${filtered.length} item(ns)</h2><button class="btn small brand" onclick="Bella.openModal('service')">Novo</button></section>
       <div class="list">
         ${filtered.map(s => {
-          const cat = categories.find(c => c.id === s.categoryId)?.name || 'ServiÃ§o';
+          const cat = categories.find(c => c.id === s.categoryId)?.name || 'Servi\u00e7o';
           return `<article class="item">
             <div class="avatar">${cat.slice(0,1)}</div>
             <div class="item-main">
               <div class="item-title">${esc(s.name)} ${s.active ? '<span class="badge success">Ativo</span>' : '<span class="badge danger">Inativo</span>'}</div>
-              <div class="item-meta">${esc(cat)} Â· ${money(s.price)} Â· ${s.duration} min<br>AntecedÃªncia: ${formatAdvance(s.minAdvanceMinutes)} Â· ComissÃ£o: ${formatCommission(s)}</div>
+              <div class="item-meta">${esc(cat)} \u00b7 ${money(s.price)} \u00b7 ${s.duration} min<br>Anteced\u00eancia: ${formatAdvance(s.minAdvanceMinutes)} \u00b7 Comiss\u00e3o: ${formatCommission(s)}</div>
               <div class="actions" style="margin-top:10px">
                 <button class="btn small secondary" type="button" onclick="Bella.openModal('service',{serviceId:'${s.id}'})">Editar</button>
                 <button class="btn small danger" type="button" onclick="Bella.deleteService('${s.id}')">Excluir</button>
               </div>
             </div>
           </article>`;
-        }).join('') || `<div class="empty">Nenhum serviÃ§o cadastrado.</div>`}
+        }).join('') || `<div class="empty">Nenhum servi\u00e7o cadastrado.</div>`}
       </div>
     `;
   }
@@ -902,25 +1056,25 @@
 
   function formatCommission(s) {
     if (s.commissionType === 'fixed') return money(s.commissionValue);
-    if (s.commissionType === 'none') return 'Sem comissÃ£o';
+    if (s.commissionType === 'none') return 'Sem comiss\u00e3o';
     return `${s.commissionValue}%`;
   }
 
   function renderMore(user, salon) {
     const tiles = [
-      ['professionals','Profissionais','Especialidades, horÃ¡rios e comissÃµes'],
+      ['professionals','Profissionais','Especialidades, hor\u00e1rios e comiss\u00f5es'],
       ['finance','Financeiro','Receitas, despesas e lucro estimado'],
       ['stock','Estoque','Produtos, alertas e baixas'],
-      ['commissions','ComissÃµes','Valores a pagar por profissional'],
-      ['online','Agenda Online','Link pÃºblico com nome do salÃ£o'],
+      ['commissions','Comiss\u00f5es','Valores a pagar por profissional'],
+      ['online','Agenda Online','Link p\u00fablico com nome do sal\u00e3o'],
       ['subscription','Assinatura','Pagamento do plano pelo InfinitePay'],
-      ['settings','ConfiguraÃ§Ãµes','AntecedÃªncia, WhatsApp e dados do salÃ£o']
+      ['settings','Configura\u00e7\u00f5es','Anteced\u00eancia, WhatsApp e dados do sal\u00e3o']
     ];
     return `
       <section class="header">
-        <div class="eyebrow">MÃ³dulos completos</div>
+        <div class="eyebrow">M\u00f3dulos completos</div>
         <h1>Mais recursos</h1>
-        <p>Acesse gestÃ£o avanÃ§ada do BellaOS.</p>
+        <p>Acesse gest\u00e3o avan\u00e7ada do BellaOS.</p>
       </section>
       <div class="grid one">
         ${tiles.map(([view,title,sub]) => `<button class="card" onclick="Bella.navigate('${view}')"><div class="card-title">${esc(title)}</div><div class="card-sub">${esc(sub)}</div></button>`).join('')}
@@ -934,7 +1088,7 @@
       <section class="header">
         <div class="eyebrow">Equipe</div>
         <h1>Profissionais</h1>
-        <p>Cada profissional tem serviÃ§os, horÃ¡rios, folgas e comissÃ£o prÃ³pria.</p>
+        <p>Cada profissional tem servi\u00e7os, hor\u00e1rios, folgas e comiss\u00e3o pr\u00f3pria.</p>
       </section>
       <section class="section"><h2>${professionals.length} profissional(is)</h2><button class="btn small brand" onclick="Bella.openModal('professional')">Nova</button></section>
       <div class="list">
@@ -942,7 +1096,7 @@
           <div class="avatar">${initials(p.name)}</div>
           <div class="item-main">
             <div class="item-title">${esc(p.name)} ${p.active ? '<span class="badge success">Ativa</span>' : '<span class="badge danger">Inativa</span>'}</div>
-            <div class="item-meta">${esc(p.specialty)}<br>${esc(scheduleSummary(p))} Â· ComissÃ£o padrÃ£o ${p.commissionDefault}%<br>${p.services.map(id => services.find(s => s.id === id)?.name).filter(Boolean).slice(0,3).join(', ')}${p.services.length > 3 ? '...' : ''}</div>
+            <div class="item-meta">${esc(p.specialty)}<br>${esc(scheduleSummary(p))} \u00b7 Comiss\u00e3o padr\u00e3o ${p.commissionDefault}%<br>${p.services.map(id => services.find(s => s.id === id)?.name).filter(Boolean).slice(0,3).join(', ')}${p.services.length > 3 ? '...' : ''}</div>
             <div class="actions" style="margin-top:10px">
               <button class="btn small secondary" type="button" onclick="Bella.openModal('professional',{professionalId:'${p.id}'})">Editar</button>
               <button class="btn small danger" type="button" onclick="Bella.deleteProfessional('${p.id}')">Excluir</button>
@@ -965,22 +1119,22 @@
     return `
       <section class="header">
         <div class="eyebrow">Financeiro</div>
-        <h1>Resultado do salÃ£o</h1>
-        <p>Receitas, despesas, formas de pagamento, ticket mÃ©dio e lucro estimado.</p>
+        <h1>Resultado do sal\u00e3o</h1>
+        <p>Receitas, despesas, formas de pagamento, ticket m\u00e9dio e lucro estimado.</p>
       </section>
       <div class="grid">
-        <div class="card stat good"><div class="stat-label">Receitas mÃªs</div><div class="stat-number">${money(incomeMonth)}</div><div class="card-sub">Entradas + concluÃ­dos</div></div>
-        <div class="card stat danger"><div class="stat-label">Despesas mÃªs</div><div class="stat-number">${money(expenseMonth)}</div><div class="card-sub">Custos registrados</div></div>
+        <div class="card stat good"><div class="stat-label">Receitas m\u00eas</div><div class="stat-number">${money(incomeMonth)}</div><div class="card-sub">Entradas + conclu\u00eddos</div></div>
+        <div class="card stat danger"><div class="stat-label">Despesas m\u00eas</div><div class="stat-number">${money(expenseMonth)}</div><div class="card-sub">Custos registrados</div></div>
         <div class="card stat"><div class="stat-label">Lucro estimado</div><div class="stat-number">${money(income - expense)}</div><div class="card-sub">Geral</div></div>
-        <div class="card stat"><div class="stat-label">Ticket mÃ©dio</div><div class="stat-number">${money(concluded.length ? incomeAppointments / concluded.length : 0)}</div><div class="card-sub">Atendimentos concluÃ­dos</div></div>
+        <div class="card stat"><div class="stat-label">Ticket m\u00e9dio</div><div class="stat-number">${money(concluded.length ? incomeAppointments / concluded.length : 0)}</div><div class="card-sub">Atendimentos conclu\u00eddos</div></div>
       </div>
-      <section class="section"><h2>LanÃ§amentos</h2><button class="btn small brand" onclick="Bella.openModal('financial')">Novo</button></section>
+      <section class="section"><h2>Lan\u00e7amentos</h2><button class="btn small brand" onclick="Bella.openModal('financial')">Novo</button></section>
       <div class="list">
         ${financial.slice().sort((a,b)=>b.date.localeCompare(a.date)).map(f => `<article class="item">
           <div class="avatar">${f.type === 'receita' ? '+' : '-'}</div>
-          <div class="item-main"><div class="item-title">${esc(f.description)}</div><div class="item-meta">${brDate(f.date)} Â· ${esc(f.payment || '')} Â· ${esc(f.type)}</div></div>
+          <div class="item-main"><div class="item-title">${esc(f.description)}</div><div class="item-meta">${brDate(f.date)} \u00b7 ${esc(f.payment || '')} \u00b7 ${esc(f.type)}</div></div>
           <div class="item-side">${money(f.amount)}</div>
-        </article>`).join('') || `<div class="empty">Nenhum lanÃ§amento manual.</div>`}
+        </article>`).join('') || `<div class="empty">Nenhum lan\u00e7amento manual.</div>`}
       </div>
     `;
   }
@@ -991,7 +1145,7 @@
       <section class="header">
         <div class="eyebrow">Estoque</div>
         <h1>Produtos e alertas</h1>
-        <p>Controle coloraÃ§Ãµes, OX, mÃ¡scaras, progressivas, esmaltes e descartÃ¡veis.</p>
+        <p>Controle colora\u00e7\u00f5es, OX, m\u00e1scaras, progressivas, esmaltes e descart\u00e1veis.</p>
       </section>
       <section class="section"><h2>${products.length} produto(s)</h2><button class="btn small brand" onclick="Bella.openModal('product')">Novo</button></section>
       <div class="list">
@@ -999,7 +1153,7 @@
           <div class="avatar">${p.category.slice(0,1)}</div>
           <div class="item-main">
             <div class="item-title">${esc(p.name)} ${Number(p.qty) <= Number(p.minQty) ? '<span class="badge danger">Estoque baixo</span>' : '<span class="badge success">OK</span>'}</div>
-            <div class="item-meta">${esc(p.category)} Â· ${p.qty} ${esc(p.unit)} Â· mÃ­nimo ${p.minQty} ${esc(p.unit)}<br>Custo: ${money(p.cost)} por ${esc(p.unit)} Â· ${esc(p.supplier || '')}</div>
+            <div class="item-meta">${esc(p.category)} \u00b7 ${p.qty} ${esc(p.unit)} \u00b7 m\u00ednimo ${p.minQty} ${esc(p.unit)}<br>Custo: ${money(p.cost)} por ${esc(p.unit)} \u00b7 ${esc(p.supplier || '')}</div>
             <div class="actions" style="margin-top:10px"><button class="btn small secondary" onclick="Bella.adjustStock('${p.id}', 1)">Entrada</button><button class="btn small secondary" onclick="Bella.adjustStock('${p.id}', -1)">Baixa</button></div>
           </div>
         </article>`).join('')}
@@ -1018,14 +1172,14 @@
     });
     return `
       <section class="header">
-        <div class="eyebrow">ComissÃµes</div>
+        <div class="eyebrow">Comiss\u00f5es</div>
         <h1>Valores a pagar</h1>
-        <p>ComissÃ£o por percentual, valor fixo ou regra especÃ­fica por serviÃ§o.</p>
+        <p>Comiss\u00e3o por percentual, valor fixo ou regra espec\u00edfica por servi\u00e7o.</p>
       </section>
       <div class="list">
         ${rows.map(r => `<article class="item">
           <div class="avatar">${initials(r.p.name)}</div>
-          <div class="item-main"><div class="item-title">${esc(r.p.name)}</div><div class="item-meta">${r.apps.length} atendimento(s) concluÃ­do(s)<br>Valor bruto: ${money(r.gross)}</div></div>
+          <div class="item-main"><div class="item-title">${esc(r.p.name)}</div><div class="item-meta">${r.apps.length} atendimento(s) conclu\u00eddo(s)<br>Valor bruto: ${money(r.gross)}</div></div>
           <div class="item-side"><strong>${money(r.commission)}</strong><br>Pendente</div>
         </article>`).join('')}
       </div>
@@ -1047,11 +1201,11 @@
     return `
       <section class="header">
         <div class="eyebrow">Agenda online</div>
-        <h1>Link do salÃ£o</h1>
-        <p>A cliente agenda sozinha pelo link pÃºblico com o nome do salÃ£o.</p>
+        <h1>Link do sal\u00e3o</h1>
+        <p>A cliente agenda sozinha pelo link p\u00fablico com o nome do sal\u00e3o.</p>
       </section>
       <div class="card">
-        <div class="card-title">Link pÃºblico</div>
+        <div class="card-title">Link p\u00fablico</div>
         <div class="copy-box">${esc(link)}</div>
         <div class="actions vertical" style="margin-top:14px">
           <button class="btn brand full" onclick="Bella.copyBookingLink()">Copiar link</button>
@@ -1061,9 +1215,9 @@
       </div>
       <section class="section"><h2>Regras de agendamento</h2></section>
       <div class="grid one">
-        <div class="card"><div class="card-title">AntecedÃªncia mÃ­nima global</div><div class="card-sub">${formatAdvance(salon.minAdvanceMinutes)} antes do horÃ¡rio escolhido.</div></div>
-        <div class="card"><div class="card-title">Agendamento no mesmo dia</div><div class="card-sub">${salon.allowSameDay ? 'Permitido respeitando a antecedÃªncia.' : 'Bloqueado para a cliente.'}</div></div>
-        <div class="card"><div class="card-title">Mostrar preÃ§os</div><div class="card-sub">${salon.showPrices ? 'A cliente vÃª os valores.' : 'A cliente nÃ£o vÃª os valores.'}</div></div>
+        <div class="card"><div class="card-title">Anteced\u00eancia m\u00ednima global</div><div class="card-sub">${formatAdvance(salon.minAdvanceMinutes)} antes do hor\u00e1rio escolhido.</div></div>
+        <div class="card"><div class="card-title">Agendamento no mesmo dia</div><div class="card-sub">${salon.allowSameDay ? 'Permitido respeitando a anteced\u00eancia.' : 'Bloqueado para a cliente.'}</div></div>
+        <div class="card"><div class="card-title">Mostrar pre\u00e7os</div><div class="card-sub">${salon.showPrices ? 'A cliente v\u00ea os valores.' : 'A cliente n\u00e3o v\u00ea os valores.'}</div></div>
       </div>
     `;
   }
@@ -1075,39 +1229,40 @@
       teste: ['muted', 'Em teste'],
       pendente: ['warn', 'Pagamento pendente'],
       vencido: ['danger', 'Pagamento vencido'],
-      cancelado: ['danger', 'Cancelada']
+      cancelado: ['danger', 'Cancelada'],
+      bloqueado: ['danger', 'Bloqueada']
     };
     const [badge, label] = statusMap[salon.subscriptionStatus || 'teste'] || statusMap.teste;
-    const handle = salon.infinitePayHandle || '';
-    const lastOrder = salon.subscriptionOrderNsu ? `<div class="card-sub">Ãšltimo pedido: ${esc(salon.subscriptionOrderNsu)}</div>` : '';
+    const handle = salon.infinitePayHandle || DEFAULT_INFINITEPAY_HANDLE || '';
+    const currentPlan = getPlan(salon.subscriptionPlanId || 'mensal');
+    const lastOrder = salon.subscriptionOrderNsu ? `<div class="card-sub">\u00daltimo pedido: ${esc(salon.subscriptionOrderNsu)}</div>` : '';
+    const due = salon.subscriptionDueDate ? `<div class="card-sub">Vencimento: ${esc(brDate(salon.subscriptionDueDate))} \u00b7 toler\u00e2ncia at\u00e9 ${esc(brDate(salon.subscriptionGraceUntil || addDaysToISO(salon.subscriptionDueDate, 3)))}</div>` : '';
     return `
       <section class="header">
         <div class="eyebrow">Assinatura</div>
         <h1>BellaOS Completo</h1>
-        <p>Plano Ãºnico com agenda online, clientes, serviÃ§os, profissionais, financeiro, estoque, comissÃµes e relatÃ³rios.</p>
+        <p>Escolha a recorr\u00eancia da assinatura. O acesso permanece liberado somente at\u00e9 3 dias ap\u00f3s o vencimento se o pagamento n\u00e3o for identificado.</p>
       </section>
 
       <div class="card plan-card">
         <div class="plan-head">
           <div>
             <div class="card-title">Plano atual</div>
-            <div class="card-sub">${esc(BELLAOS_PLAN_NAME)}</div>
+            <div class="card-sub">${esc(currentPlan.name)} \u00b7 ${esc(currentPlan.displayText)} \u00b7 ${esc(currentPlan.recurrenceText)}</div>
           </div>
           <span class="badge ${badge}">${label}</span>
         </div>
-        <div class="price-line">R$ 69,90<span>/mÃªs</span></div>
-        <div class="feature-grid compact">
-          <span>Agenda online</span><span>Clientes</span><span>ServiÃ§os</span><span>Profissionais</span><span>Financeiro</span><span>Estoque</span><span>ComissÃµes</span><span>RelatÃ³rios</span>
-        </div>
+        ${due}
         ${lastOrder}
       </div>
 
       <div class="card">
-        <div class="card-title">Pagamento pela InfinitePay</div>
-        <div class="card-sub">Ao clicar, o BellaOS gera um link de checkout para pagamento do plano mensal e abre a tela segura da InfinitePay.</div>
-        ${handle ? `<div class="copy-box" style="margin-top:12px">InfiniteTag: ${esc(handle)}</div>` : `<div class="empty" style="margin-top:12px">Cadastre sua InfiniteTag em ConfiguraÃ§Ãµes para gerar o link de pagamento.</div>`}
+        <div class="card-title">Escolher plano</div>
+        <div class="card-sub">A cobran\u00e7a e o pr\u00f3ximo vencimento seguem a recorr\u00eancia do plano escolhido.</div>
+        ${planCardsHtml('subscriptionPlanId', currentPlan.id)}
+        ${handle ? `<div class="copy-box" style="margin-top:12px">InfiniteTag: ${esc(handle)}</div>` : `<div class="empty" style="margin-top:12px">Cadastre sua InfiniteTag em Configura\u00e7\u00f5es para gerar o link de pagamento.</div>`}
         <div class="actions vertical" style="margin-top:14px">
-          <button class="btn brand full" onclick="Bella.startSubscriptionPayment()" ${handle ? '' : 'disabled'}>Assinar por R$ 69,90/mÃªs</button>
+          <button class="btn brand full" onclick="Bella.startSubscriptionPayment(document.querySelector('input[name=subscriptionPlanId]:checked')?.value || '${esc(currentPlan.id)}')" ${handle ? '' : 'disabled'}>Gerar pagamento do plano escolhido</button>
           <button class="btn secondary full" onclick="Bella.navigate('settings')">Configurar InfinitePay</button>
         </div>
       </div>
@@ -1115,9 +1270,9 @@
       <div class="card subtle-card">
         <div class="card-title">Como funciona</div>
         <div class="steps-list">
-          <div><strong>1</strong><span>O BellaOS cria o pedido do plano mensal.</span></div>
-          <div><strong>2</strong><span>A cliente paga no checkout da InfinitePay por Pix ou cartÃ£o.</span></div>
-          <div><strong>3</strong><span>ApÃ³s o pagamento, o sistema retorna para a pÃ¡gina de confirmaÃ§Ã£o.</span></div>
+          <div><strong>1</strong><span>O BellaOS gera o pagamento conforme o plano escolhido.</span></div>
+          <div><strong>2</strong><span>Depois de pago, o pr\u00f3ximo vencimento \u00e9 calculado pelo ciclo: mensal, trimestral, semestral ou anual.</span></div>
+          <div><strong>3</strong><span>Se vencer e n\u00e3o for pago, o login funciona somente por mais 3 dias.</span></div>
         </div>
       </div>
     `;
@@ -1128,35 +1283,35 @@
     const exceptions = scheduleExceptions.slice().sort((a,b) => a.date.localeCompare(b.date));
     return `
       <section class="header">
-        <div class="eyebrow">ConfiguraÃ§Ãµes</div>
-        <h1>Dados do salÃ£o</h1>
-        <p>Altere nome, slug, WhatsApp, endereÃ§o, InfinitePay e regras de agendamento.</p>
+        <div class="eyebrow">Configura\u00e7\u00f5es</div>
+        <h1>Dados do sal\u00e3o</h1>
+        <p>Altere nome, slug, WhatsApp, endere\u00e7o, InfinitePay e regras de agendamento.</p>
       </section>
       <form class="card" onsubmit="Bella.saveSettings(event)">
-        <div class="field"><label>Nome do salÃ£o</label><input name="name" value="${esc(salon.name)}" required /></div>
+        <div class="field"><label>Nome do sal\u00e3o</label><input name="name" value="${esc(salon.name)}" required /></div>
         <div class="field"><label>Slug do link</label><input name="slug" value="${esc(salon.slug)}" required /></div>
         <div class="field"><label>WhatsApp</label><input name="whatsapp" value="${esc(salon.whatsapp)}" required /></div>
-        <div class="field"><label>EndereÃ§o</label><input name="address" value="${esc(salon.address)}" /></div>
+        <div class="field"><label>Endere\u00e7o</label><input name="address" value="${esc(salon.address)}" /></div>
         <div class="field-row">
           <div class="field"><label>Abre</label><input name="openingStart" type="time" value="${esc(salon.openingStart)}" /></div>
           <div class="field"><label>Fecha</label><input name="openingEnd" type="time" value="${esc(salon.openingEnd)}" /></div>
         </div>
-        <div class="field"><label>AntecedÃªncia mÃ­nima</label><select name="minAdvanceMinutes">${[30,60,120,240,360,720,1440,2880,4320].map(m => `<option value="${m}" ${Number(salon.minAdvanceMinutes) === m ? 'selected' : ''}>${formatAdvance(m)}</option>`).join('')}</select></div>
-        <div class="switch-row"><div><span>Permitir agendamento no mesmo dia</span><small>Respeitando a antecedÃªncia mÃ­nima.</small></div><input class="checkbox" name="allowSameDay" type="checkbox" ${salon.allowSameDay ? 'checked' : ''}></div>
-        <div class="switch-row"><div><span>Mostrar preÃ§os na agenda pÃºblica</span><small>Ideal para reduzir perguntas no WhatsApp.</small></div><input class="checkbox" name="showPrices" type="checkbox" ${salon.showPrices ? 'checked' : ''}></div>
-        <div class="switch-row"><div><span>Agenda pÃºblica ativa</span><small>Quando desativada, ninguÃ©m consegue marcar pelo link.</small></div><input class="checkbox" name="bookingEnabled" type="checkbox" ${salon.bookingEnabled ? 'checked' : ''}></div>
-        <div class="field"><label>InfiniteTag InfinitePay</label><input name="infinitePayHandle" value="${esc(salon.infinitePayHandle || '')}" placeholder="ex: sua_infinite_tag" /><small>Use a InfiniteTag sem o sÃ­mbolo $ para gerar links de pagamento da assinatura.</small></div>
-        <button class="btn brand full" type="submit">Salvar configuraÃ§Ãµes</button>
+        <div class="field"><label>Anteced\u00eancia m\u00ednima</label><select name="minAdvanceMinutes">${[30,60,120,240,360,720,1440,2880,4320].map(m => `<option value="${m}" ${Number(salon.minAdvanceMinutes) === m ? 'selected' : ''}>${formatAdvance(m)}</option>`).join('')}</select></div>
+        <div class="switch-row"><div><span>Permitir agendamento no mesmo dia</span><small>Respeitando a anteced\u00eancia m\u00ednima.</small></div><input class="checkbox" name="allowSameDay" type="checkbox" ${salon.allowSameDay ? 'checked' : ''}></div>
+        <div class="switch-row"><div><span>Mostrar pre\u00e7os na agenda p\u00fablica</span><small>Ideal para reduzir perguntas no WhatsApp.</small></div><input class="checkbox" name="showPrices" type="checkbox" ${salon.showPrices ? 'checked' : ''}></div>
+        <div class="switch-row"><div><span>Agenda p\u00fablica ativa</span><small>Quando desativada, ningu\u00e9m consegue marcar pelo link.</small></div><input class="checkbox" name="bookingEnabled" type="checkbox" ${salon.bookingEnabled ? 'checked' : ''}></div>
+        <div class="field"><label>InfiniteTag InfinitePay</label><input name="infinitePayHandle" value="${esc(salon.infinitePayHandle || '')}" placeholder="ex: sua_infinite_tag" /><small>Use a InfiniteTag sem o s\u00edmbolo $ para gerar links de pagamento da assinatura.</small></div>
+        <button class="btn brand full" type="submit">Salvar configura\u00e7\u00f5es</button>
       </form>
 
-      <section class="section"><h2>ExceÃ§Ãµes de agenda</h2><button class="btn small secondary" onclick="Bella.openModal('scheduleException')">Adicionar</button></section>
+      <section class="section"><h2>Exce\u00e7\u00f5es de agenda</h2><button class="btn small secondary" onclick="Bella.openModal('scheduleException')">Adicionar</button></section>
       <div class="list">
         ${exceptions.length ? exceptions.map(e => {
           const pro = professionals.find(p => p.id === e.professionalId);
-          const scope = e.scope === 'professional' ? `Profissional: ${esc(pro?.name || 'nÃ£o encontrada')}` : 'SalÃ£o inteiro';
-          const status = e.closed ? 'Fechado' : `${esc(e.start)} Ã s ${esc(e.end)}${e.breakStart && e.breakEnd ? ` Â· intervalo ${esc(e.breakStart)} Ã s ${esc(e.breakEnd)}` : ''}`;
-          return `<article class="item"><div class="avatar">${brDate(e.date).slice(0,5)}</div><div class="item-main"><div class="item-title">${brDate(e.date)} Â· ${scope}</div><div class="item-meta">${status}${e.reason ? `<br>${esc(e.reason)}` : ''}</div></div><button class="btn small secondary" onclick="Bella.openModal('scheduleException',{exceptionId:'${e.id}'})">Editar</button></article>`;
-        }).join('') : `<div class="empty">Nenhuma exceÃ§Ã£o cadastrada. Use para feriados, eventos ou dias com funcionamento especial.</div>`}
+          const scope = e.scope === 'professional' ? `Profissional: ${esc(pro?.name || 'n\u00e3o encontrada')}` : 'Sal\u00e3o inteiro';
+          const status = e.closed ? 'Fechado' : `${esc(e.start)} \u00e0s ${esc(e.end)}${e.breakStart && e.breakEnd ? ` \u00b7 intervalo ${esc(e.breakStart)} \u00e0s ${esc(e.breakEnd)}` : ''}`;
+          return `<article class="item"><div class="avatar">${brDate(e.date).slice(0,5)}</div><div class="item-main"><div class="item-title">${brDate(e.date)} \u00b7 ${scope}</div><div class="item-meta">${status}${e.reason ? `<br>${esc(e.reason)}` : ''}</div></div><button class="btn small secondary" onclick="Bella.openModal('scheduleException',{exceptionId:'${e.id}'})">Editar</button></article>`;
+        }).join('') : `<div class="empty">Nenhuma exce\u00e7\u00e3o cadastrada. Use para feriados, eventos ou dias com funcionamento especial.</div>`}
       </div>
     `;
   }
@@ -1176,7 +1331,7 @@
   }
 
   function modalHeader(title) {
-    return `<div class="modal-header"><h2>${esc(title)}</h2><button class="icon-btn" onclick="Bella.closeModal()">Ã—</button></div>`;
+    return `<div class="modal-header"><h2>${esc(title)}</h2><button class="icon-btn" onclick="Bella.closeModal()">\u00d7</button></div>`;
   }
 
   function modalAppointment() {
@@ -1190,37 +1345,37 @@
     const duration = multiServiceDuration(draft.items, services, salon);
     return `${modalHeader('Novo atendimento')}
       <form onsubmit="Bella.saveAppointment(event)">
-        <div class="field"><label>Cliente</label><select name="clientId" required>${clients.map(c => `<option value="${c.id}">${esc(c.name)} Â· ${esc(c.phone)}</option>`).join('')}</select></div>
+        <div class="field"><label>Cliente</label><select name="clientId" required>${clients.map(c => `<option value="${c.id}">${esc(c.name)} \u00b7 ${esc(c.phone)}</option>`).join('')}</select></div>
 
         <div class="card" style="margin-bottom:14px">
-          <div class="card-title">Adicionar serviÃ§o ao atendimento</div>
-          <div class="card-sub" style="margin-bottom:12px">Escolha os serviÃ§os. O BellaOS testa a melhor sequÃªncia de acordo com a agenda de cada profissional; maquiagem e penteado ficam no final.</div>
+          <div class="card-title">Adicionar servi\u00e7o ao atendimento</div>
+          <div class="card-sub" style="margin-bottom:12px">Escolha os servi\u00e7os. O BellaOS testa a melhor sequ\u00eancia de acordo com a agenda de cada profissional; maquiagem e penteado ficam no final.</div>
           <div class="field"><label>Profissional</label><select onchange="Bella.setAppointmentItemDraft('professionalId', this.value)" ${activeProfessionals.length ? '' : 'disabled'}>
-            ${activeProfessionals.length ? activeProfessionals.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} Â· ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional ativa</option>`}
-          </select><small>Escolha a profissional para ver apenas os serviÃ§os que ela realiza.</small></div>
-          <div class="field"><label>ServiÃ§o disponÃ­vel para esta profissional</label><select onchange="Bella.setAppointmentItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
-            ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${draft.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)} Â· ${money(s.price)} Â· ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviÃ§o no escopo desta profissional</option>`}
+            ${activeProfessionals.length ? activeProfessionals.map(p => `<option value="${p.id}" ${draft.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} \u00b7 ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional ativa</option>`}
+          </select><small>Escolha a profissional para ver apenas os servi\u00e7os que ela realiza.</small></div>
+          <div class="field"><label>Servi\u00e7o dispon\u00edvel para esta profissional</label><select onchange="Bella.setAppointmentItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
+            ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${draft.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)} \u00b7 ${money(s.price)} \u00b7 ${s.duration} min</option>`).join('') : `<option value="">Nenhum servi\u00e7o no escopo desta profissional</option>`}
           </select></div>
-          <button class="btn secondary full" type="button" onclick="Bella.addAppointmentItem()" ${(!draft.draftProfessionalId || !draft.draftServiceId || !availableServices.length) ? 'disabled' : ''}>Adicionar serviÃ§o</button>
+          <button class="btn secondary full" type="button" onclick="Bella.addAppointmentItem()" ${(!draft.draftProfessionalId || !draft.draftServiceId || !availableServices.length) ? 'disabled' : ''}>Adicionar servi\u00e7o</button>
         </div>
 
-        <div class="field"><label>ServiÃ§os escolhidos</label><small>Ordem automÃ¡tica do atendimento. O sistema ajusta a sequÃªncia conforme a disponibilidade das profissionais e deixa maquiagem e penteado no final.</small>
+        <div class="field"><label>Servi\u00e7os escolhidos</label><small>Ordem autom\u00e1tica do atendimento. O sistema ajusta a sequ\u00eancia conforme a disponibilidade das profissionais e deixa maquiagem e penteado no final.</small>
           <div class="list">
-            ${draft.items.length ? draft.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'appointment')).join('') : `<div class="empty">Nenhum serviÃ§o adicionado ainda.</div>`}
+            ${draft.items.length ? draft.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'appointment')).join('') : `<div class="empty">Nenhum servi\u00e7o adicionado ainda.</div>`}
           </div>
         </div>
 
         <div class="field"><label>Data</label><input name="date" type="date" min="${todayISO()}" value="${esc(draft.date)}" required onchange="Bella.setAppointmentDraft('date', this.value)" /></div>
-        <div class="field"><label>HorÃ¡rio de inÃ­cio</label>
-          <div class="slots">${slots.length ? slots.map(t => `<button type="button" class="slot ${draft.time === t ? 'active' : ''}" onclick="Bella.setAppointmentDraft('time','${t}')">${t}</button>`).join('') : `<button type="button" class="slot" disabled>Sem horÃ¡rios</button>`}</div>
+        <div class="field"><label>Hor\u00e1rio de in\u00edcio</label>
+          <div class="slots">${slots.length ? slots.map(t => `<button type="button" class="slot ${draft.time === t ? 'active' : ''}" onclick="Bella.setAppointmentDraft('time','${t}')">${t}</button>`).join('') : `<button type="button" class="slot" disabled>Sem hor\u00e1rios</button>`}</div>
           <input type="hidden" name="start" value="${esc(draft.time)}" required />
-          <small>${draft.items.length ? 'VocÃª escolhe o horÃ¡rio de inÃ­cio. O sistema procura a melhor ordem e encaixa cada serviÃ§o no horÃ¡rio da profissional responsÃ¡vel.' : 'Adicione pelo menos um serviÃ§o para ver os horÃ¡rios.'}</small>
+          <small>${draft.items.length ? 'Voc\u00ea escolhe o hor\u00e1rio de in\u00edcio. O sistema procura a melhor ordem e encaixa cada servi\u00e7o no hor\u00e1rio da profissional respons\u00e1vel.' : 'Adicione pelo menos um servi\u00e7o para ver os hor\u00e1rios.'}</small>
         </div>
         <div class="summary-box">
           <strong>${draft.items.length ? money(total) : 'Monte o atendimento'}</strong>
-          <small>${draft.items.length ? `${draft.items.length} serviÃ§o(s) Â· duraÃ§Ã£o estimada ${duration} min` : 'O resumo aparecerÃ¡ aqui.'}</small>
+          <small>${draft.items.length ? `${draft.items.length} servi\u00e7o(s) \u00b7 dura\u00e7\u00e3o estimada ${duration} min` : 'O resumo aparecer\u00e1 aqui.'}</small>
         </div>
-        <div class="field" style="margin-top:14px"><label>ObservaÃ§Ãµes</label><textarea name="notes" placeholder="PreferÃªncias, sinal pago, fÃ³rmula, etc."></textarea></div>
+        <div class="field" style="margin-top:14px"><label>Observa\u00e7\u00f5es</label><textarea name="notes" placeholder="Prefer\u00eancias, sinal pago, f\u00f3rmula, etc."></textarea></div>
         <button class="btn brand full" type="submit" ${(!draft.time || !draft.items.length) ? 'disabled' : ''}>Salvar atendimento</button>
       </form>`;
   }
@@ -1235,10 +1390,10 @@
         <div class="field"><label>Nome</label><input name="name" value="${esc(c?.name || '')}" required /></div>
         <div class="field"><label>WhatsApp</label><input name="phone" inputmode="tel" value="${esc(c?.phone || '')}" required /></div>
         <div class="field"><label>E-mail</label><input name="email" type="email" value="${esc(c?.email || '')}" /></div>
-        <div class="field"><label>Profissional preferida</label><select name="preferredProfessionalId"><option value="">Sem preferÃªncia</option>${professionals.map(p => `<option value="${p.id}" ${c?.preferredProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
-        <div class="field"><label>FÃ³rmula de coloraÃ§Ã£o</label><input name="formula" value="${esc(c?.formula || '')}" placeholder="Ex: 7.1 + OX 20 volumes" /></div>
-        <div class="field"><label>ObservaÃ§Ãµes</label><textarea name="notes">${esc(c?.notes || '')}</textarea></div>
-        <button class="btn brand full" type="submit">${isEdit ? 'Salvar alteraÃ§Ãµes' : 'Cadastrar cliente'}</button>
+        <div class="field"><label>Profissional preferida</label><select name="preferredProfessionalId"><option value="">Sem prefer\u00eancia</option>${professionals.map(p => `<option value="${p.id}" ${c?.preferredProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}</select></div>
+        <div class="field"><label>F\u00f3rmula de colora\u00e7\u00e3o</label><input name="formula" value="${esc(c?.formula || '')}" placeholder="Ex: 7.1 + OX 20 volumes" /></div>
+        <div class="field"><label>Observa\u00e7\u00f5es</label><textarea name="notes">${esc(c?.notes || '')}</textarea></div>
+        <button class="btn brand full" type="submit">${isEdit ? 'Salvar altera\u00e7\u00f5es' : 'Cadastrar cliente'}</button>
         ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteClient('${c.id}')">Excluir cliente</button>` : ''}
       </form>`;
   }
@@ -1249,16 +1404,16 @@
     const svc = services.find(x => x.id === payload.serviceId);
     const isEdit = Boolean(svc);
     const advances = [30,60,120,240,360,720,1440,2880,4320];
-    return `${modalHeader(isEdit ? 'Editar serviÃ§o' : 'Novo serviÃ§o')}
+    return `${modalHeader(isEdit ? 'Editar servi\u00e7o' : 'Novo servi\u00e7o')}
       <form onsubmit="Bella.saveService(event, '${svc?.id || ''}')">
         <div class="field"><label>Nome</label><input name="name" value="${esc(svc?.name || '')}" required /></div>
         <div class="field"><label>Categoria</label><select name="categoryId">${categories.map(c => `<option value="${c.id}" ${svc?.categoryId === c.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}</select></div>
-        <div class="field-row"><div class="field"><label>PreÃ§o</label><input name="price" type="number" step="0.01" value="${esc(svc?.price ?? '')}" required /></div><div class="field"><label>DuraÃ§Ã£o min</label><input name="duration" type="number" value="${esc(svc?.duration ?? '')}" required /></div></div>
-        <div class="field"><label>AntecedÃªncia mÃ­nima</label><select name="minAdvanceMinutes">${advances.map(m => `<option value="${m}" ${Number(svc?.minAdvanceMinutes || 60) === m ? 'selected' : ''}>${formatAdvance(m)}</option>`).join('')}</select></div>
-        <div class="field-row"><div class="field"><label>ComissÃ£o tipo</label><select name="commissionType"><option value="percent" ${svc?.commissionType === 'percent' || !svc ? 'selected' : ''}>Percentual</option><option value="fixed" ${svc?.commissionType === 'fixed' ? 'selected' : ''}>Valor fixo</option><option value="none" ${svc?.commissionType === 'none' ? 'selected' : ''}>Sem comissÃ£o</option></select></div><div class="field"><label>ComissÃ£o</label><input name="commissionValue" type="number" step="0.01" value="${esc(svc?.commissionValue ?? 40)}" /></div></div>
-        <div class="switch-row"><div><span>ServiÃ§o ativo</span><small>ServiÃ§os inativos nÃ£o aparecem na agenda pÃºblica.</small></div><input class="checkbox" name="active" type="checkbox" ${svc?.active !== false ? 'checked' : ''}></div>
-        <button class="btn brand full" type="submit">${isEdit ? 'Salvar alteraÃ§Ãµes' : 'Cadastrar serviÃ§o'}</button>
-        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteService('${svc.id}')">Excluir serviÃ§o</button>` : ''}
+        <div class="field-row"><div class="field"><label>Pre\u00e7o</label><input name="price" type="number" step="0.01" value="${esc(svc?.price ?? '')}" required /></div><div class="field"><label>Dura\u00e7\u00e3o min</label><input name="duration" type="number" value="${esc(svc?.duration ?? '')}" required /></div></div>
+        <div class="field"><label>Anteced\u00eancia m\u00ednima</label><select name="minAdvanceMinutes">${advances.map(m => `<option value="${m}" ${Number(svc?.minAdvanceMinutes || 60) === m ? 'selected' : ''}>${formatAdvance(m)}</option>`).join('')}</select></div>
+        <div class="field-row"><div class="field"><label>Comiss\u00e3o tipo</label><select name="commissionType"><option value="percent" ${svc?.commissionType === 'percent' || !svc ? 'selected' : ''}>Percentual</option><option value="fixed" ${svc?.commissionType === 'fixed' ? 'selected' : ''}>Valor fixo</option><option value="none" ${svc?.commissionType === 'none' ? 'selected' : ''}>Sem comiss\u00e3o</option></select></div><div class="field"><label>Comiss\u00e3o</label><input name="commissionValue" type="number" step="0.01" value="${esc(svc?.commissionValue ?? 40)}" /></div></div>
+        <div class="switch-row"><div><span>Servi\u00e7o ativo</span><small>Servi\u00e7os inativos n\u00e3o aparecem na agenda p\u00fablica.</small></div><input class="checkbox" name="active" type="checkbox" ${svc?.active !== false ? 'checked' : ''}></div>
+        <button class="btn brand full" type="submit">${isEdit ? 'Salvar altera\u00e7\u00f5es' : 'Cadastrar servi\u00e7o'}</button>
+        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteService('${svc.id}')">Excluir servi\u00e7o</button>` : ''}
       </form>`;
   }
 
@@ -1274,8 +1429,8 @@
         <label class="week-day"><input type="checkbox" name="dayActive_${day.value}" ${row.active ? 'checked' : ''}><span>${day.short}</span></label>
         <div class="week-times">
           <div class="field mini"><label>Entrada</label><input name="dayStart_${day.value}" type="time" value="${esc(row.start)}" /></div>
-          <div class="field mini"><label>SaÃ­da</label><input name="dayEnd_${day.value}" type="time" value="${esc(row.end)}" /></div>
-          <div class="field mini"><label>Intervalo inÃ­cio</label><input name="dayBreakStart_${day.value}" type="time" value="${esc(row.breakStart || '')}" /></div>
+          <div class="field mini"><label>Sa\u00edda</label><input name="dayEnd_${day.value}" type="time" value="${esc(row.end)}" /></div>
+          <div class="field mini"><label>Intervalo in\u00edcio</label><input name="dayBreakStart_${day.value}" type="time" value="${esc(row.breakStart || '')}" /></div>
           <div class="field mini"><label>Intervalo fim</label><input name="dayBreakEnd_${day.value}" type="time" value="${esc(row.breakEnd || '')}" /></div>
         </div>
       </div>`;
@@ -1285,11 +1440,11 @@
         <div class="field"><label>Nome</label><input name="name" value="${esc(p?.name || '')}" required /></div>
         <div class="field"><label>WhatsApp</label><input name="phone" inputmode="tel" value="${esc(p?.phone || '')}" /></div>
         <div class="field"><label>Especialidade</label><input name="specialty" value="${esc(p?.specialty || '')}" placeholder="Cabelo, unhas, maquiagem..." /></div>
-        <div class="field"><label>ServiÃ§os realizados</label><div class="service-picker">${services.filter(s=>s.active || p?.services?.includes(s.id)).map(s => `<label class="service-option"><input type="checkbox" name="services" value="${s.id}" ${p?.services?.includes(s.id) ? 'checked' : ''}><div><strong>${esc(s.name)}</strong><div class="card-sub">${money(s.price)} Â· ${s.duration} min</div></div></label>`).join('')}</div></div>
-        <div class="field"><label>HorÃ¡rios por dia da semana</label><p class="hint">Ative os dias de atendimento e defina entrada, saÃ­da e intervalo de cada dia.</p><div class="week-schedule">${scheduleRows}</div></div>
-        <div class="field"><label>ComissÃ£o padrÃ£o %</label><input name="commissionDefault" type="number" value="${esc(p?.commissionDefault ?? 40)}" /></div>
-        <div class="switch-row"><div><span>Profissional ativa</span><small>Profissionais inativas nÃ£o recebem novos agendamentos online.</small></div><input class="checkbox" name="active" type="checkbox" ${p?.active !== false ? 'checked' : ''}></div>
-        <button class="btn brand full" type="submit">${isEdit ? 'Salvar alteraÃ§Ãµes' : 'Cadastrar profissional'}</button>
+        <div class="field"><label>Servi\u00e7os realizados</label><div class="service-picker">${services.filter(s=>s.active || p?.services?.includes(s.id)).map(s => `<label class="service-option"><input type="checkbox" name="services" value="${s.id}" ${p?.services?.includes(s.id) ? 'checked' : ''}><div><strong>${esc(s.name)}</strong><div class="card-sub">${money(s.price)} \u00b7 ${s.duration} min</div></div></label>`).join('')}</div></div>
+        <div class="field"><label>Hor\u00e1rios por dia da semana</label><p class="hint">Ative os dias de atendimento e defina entrada, sa\u00edda e intervalo de cada dia.</p><div class="week-schedule">${scheduleRows}</div></div>
+        <div class="field"><label>Comiss\u00e3o padr\u00e3o %</label><input name="commissionDefault" type="number" value="${esc(p?.commissionDefault ?? 40)}" /></div>
+        <div class="switch-row"><div><span>Profissional ativa</span><small>Profissionais inativas n\u00e3o recebem novos agendamentos online.</small></div><input class="checkbox" name="active" type="checkbox" ${p?.active !== false ? 'checked' : ''}></div>
+        <button class="btn brand full" type="submit">${isEdit ? 'Salvar altera\u00e7\u00f5es' : 'Cadastrar profissional'}</button>
         ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteProfessional('${p.id}')">Excluir profissional</button>` : ''}
       </form>`;
   }
@@ -1300,39 +1455,39 @@
     const e = scheduleExceptions.find(x => x.id === payload.exceptionId);
     const isEdit = Boolean(e);
     const scope = e?.scope || 'salon';
-    return `${modalHeader(isEdit ? 'Editar exceÃ§Ã£o de agenda' : 'Nova exceÃ§Ã£o de agenda')}
+    return `${modalHeader(isEdit ? 'Editar exce\u00e7\u00e3o de agenda' : 'Nova exce\u00e7\u00e3o de agenda')}
       <form onsubmit="Bella.saveScheduleException(event, '${e?.id || ''}')">
         <div class="field"><label>Data</label><input name="date" type="date" value="${esc(e?.date || todayISO())}" required /></div>
         <div class="field"><label>Aplicar em</label><select name="scope" onchange="Bella.toggleExceptionScope(this.value)">
-          <option value="salon" ${scope === 'salon' ? 'selected' : ''}>SalÃ£o inteiro</option>
-          <option value="professional" ${scope === 'professional' ? 'selected' : ''}>Uma profissional especÃ­fica</option>
+          <option value="salon" ${scope === 'salon' ? 'selected' : ''}>Sal\u00e3o inteiro</option>
+          <option value="professional" ${scope === 'professional' ? 'selected' : ''}>Uma profissional espec\u00edfica</option>
         </select></div>
         <div class="field exception-professional" style="${scope === 'professional' ? '' : 'display:none'}"><label>Profissional</label><select name="professionalId">
           ${professionals.map(p => `<option value="${p.id}" ${e?.professionalId === p.id ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
         </select></div>
-        <div class="switch-row"><div><span>Fechar neste dia</span><small>Se ativar, nenhum horÃ¡rio serÃ¡ exibido para esta data.</small></div><input class="checkbox" name="closed" type="checkbox" ${e?.closed ? 'checked' : ''}></div>
+        <div class="switch-row"><div><span>Fechar neste dia</span><small>Se ativar, nenhum hor\u00e1rio ser\u00e1 exibido para esta data.</small></div><input class="checkbox" name="closed" type="checkbox" ${e?.closed ? 'checked' : ''}></div>
         <div class="field-row">
           <div class="field"><label>Abre</label><input name="start" type="time" value="${esc(e?.start || '09:00')}" /></div>
           <div class="field"><label>Fecha</label><input name="end" type="time" value="${esc(e?.end || '13:00')}" /></div>
         </div>
         <div class="field-row">
-          <div class="field"><label>Intervalo inÃ­cio</label><input name="breakStart" type="time" value="${esc(e?.breakStart || '')}" /></div>
+          <div class="field"><label>Intervalo in\u00edcio</label><input name="breakStart" type="time" value="${esc(e?.breakStart || '')}" /></div>
           <div class="field"><label>Intervalo fim</label><input name="breakEnd" type="time" value="${esc(e?.breakEnd || '')}" /></div>
         </div>
-        <div class="field"><label>Motivo/observaÃ§Ã£o</label><input name="reason" value="${esc(e?.reason || '')}" placeholder="Ex: feriado, evento, manutenÃ§Ã£o..." /></div>
-        <button class="btn brand full" type="submit">Salvar exceÃ§Ã£o</button>
-        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteScheduleException('${e.id}')">Excluir exceÃ§Ã£o</button>` : ''}
+        <div class="field"><label>Motivo/observa\u00e7\u00e3o</label><input name="reason" value="${esc(e?.reason || '')}" placeholder="Ex: feriado, evento, manuten\u00e7\u00e3o..." /></div>
+        <button class="btn brand full" type="submit">Salvar exce\u00e7\u00e3o</button>
+        ${isEdit ? `<button class="btn danger full" style="margin-top:10px" type="button" onclick="Bella.deleteScheduleException('${e.id}')">Excluir exce\u00e7\u00e3o</button>` : ''}
       </form>`;
   }
 
   function modalFinancial() {
-    return `${modalHeader('Novo lanÃ§amento')}
+    return `${modalHeader('Novo lan\u00e7amento')}
       <form onsubmit="Bella.saveFinancial(event)">
         <div class="field"><label>Tipo</label><select name="type"><option value="receita">Receita</option><option value="despesa">Despesa</option></select></div>
-        <div class="field"><label>DescriÃ§Ã£o</label><input name="description" required /></div>
+        <div class="field"><label>Descri\u00e7\u00e3o</label><input name="description" required /></div>
         <div class="field-row"><div class="field"><label>Valor</label><input name="amount" type="number" step="0.01" required /></div><div class="field"><label>Data</label><input name="date" type="date" value="${todayISO()}" required /></div></div>
-        <div class="field"><label>Pagamento</label><select name="payment"><option>Pix</option><option>Dinheiro</option><option>CartÃ£o de dÃ©bito</option><option>CartÃ£o de crÃ©dito</option><option>Parcelado</option><option>Cortesia</option><option>Pendente</option></select></div>
-        <button class="btn brand full" type="submit">Salvar lanÃ§amento</button>
+        <div class="field"><label>Pagamento</label><select name="payment"><option>Pix</option><option>Dinheiro</option><option>Cart\u00e3o de d\u00e9bito</option><option>Cart\u00e3o de cr\u00e9dito</option><option>Parcelado</option><option>Cortesia</option><option>Pendente</option></select></div>
+        <button class="btn brand full" type="submit">Salvar lan\u00e7amento</button>
       </form>`;
   }
 
@@ -1340,9 +1495,9 @@
     return `${modalHeader('Novo produto')}
       <form onsubmit="Bella.saveProduct(event)">
         <div class="field"><label>Nome</label><input name="name" required /></div>
-        <div class="field"><label>Categoria</label><select name="category"><option>Shampoo</option><option>Condicionador</option><option>MÃ¡scara</option><option>ColoraÃ§Ã£o</option><option>Oxidante</option><option>Progressiva</option><option>Esmalte</option><option>DescartÃ¡veis</option><option>Maquiagem</option><option>Outros</option></select></div>
+        <div class="field"><label>Categoria</label><select name="category"><option>Shampoo</option><option>Condicionador</option><option>M\u00e1scara</option><option>Colora\u00e7\u00e3o</option><option>Oxidante</option><option>Progressiva</option><option>Esmalte</option><option>Descart\u00e1veis</option><option>Maquiagem</option><option>Outros</option></select></div>
         <div class="field-row"><div class="field"><label>Quantidade</label><input name="qty" type="number" step="0.01" required /></div><div class="field"><label>Unidade</label><input name="unit" value="un" required /></div></div>
-        <div class="field-row"><div class="field"><label>Estoque mÃ­nimo</label><input name="minQty" type="number" step="0.01" required /></div><div class="field"><label>Custo</label><input name="cost" type="number" step="0.01" /></div></div>
+        <div class="field-row"><div class="field"><label>Estoque m\u00ednimo</label><input name="minQty" type="number" step="0.01" required /></div><div class="field"><label>Custo</label><input name="cost" type="number" step="0.01" /></div></div>
         <div class="field"><label>Fornecedor</label><input name="supplier" /></div>
         <button class="btn brand full" type="submit">Cadastrar produto</button>
       </form>`;
@@ -1352,23 +1507,23 @@
     const salon = currentSalon();
     const { clients, professionals, appointments, services, hairHistory } = salonData(salon.id);
     const c = clients.find(x => x.id === payload.clientId);
-    if (!c) return modalHeader('Cliente nÃ£o encontrada');
+    if (!c) return modalHeader('Cliente n\u00e3o encontrada');
     const pro = professionals.find(p => p.id === c.preferredProfessionalId);
     const apps = appointments.filter(a => a.clientId === c.id).sort((a,b)=>b.date.localeCompare(a.date));
     const hist = hairHistory.filter(h => h.clientId === c.id).sort((a,b)=>b.date.localeCompare(a.date));
     return `${modalHeader(c.name)}
       <div class="card tight">
         <div class="card-title">Ficha da cliente</div>
-        <div class="card-sub">WhatsApp: ${esc(c.phone)}<br>PreferÃªncia: ${esc(pro?.name || 'Sem preferÃªncia')}<br>Total gasto: ${money(c.totalSpent || 0)} Â· ${c.visits || 0} visita(s)</div>
+        <div class="card-sub">WhatsApp: ${esc(c.phone)}<br>Prefer\u00eancia: ${esc(pro?.name || 'Sem prefer\u00eancia')}<br>Total gasto: ${money(c.totalSpent || 0)} \u00b7 ${c.visits || 0} visita(s)</div>
         <div class="actions" style="margin-top:12px">
           <button class="btn small secondary" type="button" onclick="Bella.openModal('client',{clientId:'${c.id}'})">Editar</button>
           <button class="btn small danger" type="button" onclick="Bella.deleteClient('${c.id}')">Excluir</button>
         </div>
       </div>
-      <section class="section"><h2>ObservaÃ§Ãµes</h2></section>
-      <div class="card"><div class="card-sub">${esc(c.notes || 'Sem observaÃ§Ãµes.')}${c.formula ? `<br><br><strong>FÃ³rmula:</strong> ${esc(c.formula)}` : ''}</div></div>
-      <section class="section"><h2>HistÃ³rico capilar</h2><button class="btn small secondary" onclick="Bella.addHairHistoryPrompt('${c.id}')">Adicionar</button></section>
-      <div class="list">${hist.map(h => `<article class="item"><div class="avatar">H</div><div class="item-main"><div class="item-title">${brDate(h.date)} Â· ${esc(h.service)}</div><div class="item-meta">${esc(h.formula)}<br>${esc(h.notes || '')}</div></div></article>`).join('') || `<div class="empty">Nenhum histÃ³rico capilar cadastrado.</div>`}</div>
+      <section class="section"><h2>Observa\u00e7\u00f5es</h2></section>
+      <div class="card"><div class="card-sub">${esc(c.notes || 'Sem observa\u00e7\u00f5es.')}${c.formula ? `<br><br><strong>F\u00f3rmula:</strong> ${esc(c.formula)}` : ''}</div></div>
+      <section class="section"><h2>Hist\u00f3rico capilar</h2><button class="btn small secondary" onclick="Bella.addHairHistoryPrompt('${c.id}')">Adicionar</button></section>
+      <div class="list">${hist.map(h => `<article class="item"><div class="avatar">H</div><div class="item-main"><div class="item-title">${brDate(h.date)} \u00b7 ${esc(h.service)}</div><div class="item-meta">${esc(h.formula)}<br>${esc(h.notes || '')}</div></div></article>`).join('') || `<div class="empty">Nenhum hist\u00f3rico capilar cadastrado.</div>`}</div>
       <section class="section"><h2>Atendimentos</h2></section>
       <div class="list">${apps.map(a => `<article class="item"><div class="avatar">${a.start}</div><div class="item-main"><div class="item-title">${brDate(a.date)} ${appointmentStatusBadge(a.status)}</div><div class="item-meta">${esc(serviceName(a.serviceIds, services))}<br>${money(a.total)}</div></div></article>`).join('') || `<div class="empty">Nenhum atendimento ainda.</div>`}</div>`;
   }
@@ -1376,7 +1531,7 @@
   function renderPublicBooking(slug) {
     const salon = salonBySlug(slug);
     if (!salon) {
-      app.innerHTML = `<main class="booking-shell"><section class="public-hero"><h1>Agenda nÃ£o encontrada</h1><p>Confira se o link estÃ¡ correto.</p><button class="btn full" onclick="Bella.goLogin()">Voltar</button></section></main>`;
+      app.innerHTML = `<main class="booking-shell"><section class="public-hero"><h1>Agenda n\u00e3o encontrada</h1><p>Confira se o link est\u00e1 correto.</p><button class="btn full" onclick="Bella.goLogin()">Voltar</button></section></main>`;
       return;
     }
     const { services, professionals } = salonData(salon.id);
@@ -1392,38 +1547,38 @@
       <main class="booking-shell">
         <section class="public-hero">
           <div class="public-hero-logo"><img src="${esc(salon.logoUrl || '/assets/logo-mark.svg')}" alt="${esc(salon.name)}"><div><div class="logo-title public-brand">${esc(salon.name)}</div><div class="logo-subtitle">Agenda online</div></div></div>
-          <h1>Agende seu horÃ¡rio</h1>
-          <p>${esc(salon.address || '')}<br>Selecione os serviÃ§os, escolha o horÃ¡rio de inÃ­cio e o sistema organiza a ordem automaticamente.</p>
+          <h1>Agende seu hor\u00e1rio</h1>
+          <p>${esc(salon.address || '')}<br>Selecione os servi\u00e7os, escolha o hor\u00e1rio de in\u00edcio e o sistema organiza a ordem automaticamente.</p>
         </section>
-        ${enabled ? '' : `<div class="card danger"><div class="card-title">Agenda indisponÃ­vel</div><div class="card-sub">Este salÃ£o pausou os agendamentos online.</div></div>`}
+        ${enabled ? '' : `<div class="card danger"><div class="card-title">Agenda indispon\u00edvel</div><div class="card-sub">Este sal\u00e3o pausou os agendamentos online.</div></div>`}
 
         <section class="step">
-          <div class="section"><h2>1. Escolha os serviÃ§os</h2></div>
+          <div class="section"><h2>1. Escolha os servi\u00e7os</h2></div>
           <div class="card">
             <div class="field"><label>Profissional</label><select onchange="Bella.setPublicItemDraft('professionalId', this.value)" ${activeProfessionals.length ? '' : 'disabled'}>
-              ${activeProfessionals.length ? activeProfessionals.map(p => `<option value="${p.id}" ${b.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} Â· ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional ativa</option>`}
-            </select><small>Escolha a profissional para ver apenas os serviÃ§os que ela realiza.</small></div>
-            <div class="field"><label>ServiÃ§o disponÃ­vel para esta profissional</label><select onchange="Bella.setPublicItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
-              ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${b.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)}${salon.showPrices ? ' Â· ' + money(s.price) : ''} Â· ${s.duration} min</option>`).join('') : `<option value="">Nenhum serviÃ§o no escopo desta profissional</option>`}
+              ${activeProfessionals.length ? activeProfessionals.map(p => `<option value="${p.id}" ${b.draftProfessionalId === p.id ? 'selected' : ''}>${esc(p.name)} \u00b7 ${esc(p.specialty)}</option>`).join('') : `<option value="">Nenhuma profissional ativa</option>`}
+            </select><small>Escolha a profissional para ver apenas os servi\u00e7os que ela realiza.</small></div>
+            <div class="field"><label>Servi\u00e7o dispon\u00edvel para esta profissional</label><select onchange="Bella.setPublicItemDraft('serviceId', this.value)" ${availableServices.length ? '' : 'disabled'}>
+              ${availableServices.length ? availableServices.map(s => `<option value="${s.id}" ${b.draftServiceId === s.id ? 'selected' : ''}>${esc(s.name)}${salon.showPrices ? ' \u00b7 ' + money(s.price) : ''} \u00b7 ${s.duration} min</option>`).join('') : `<option value="">Nenhum servi\u00e7o no escopo desta profissional</option>`}
             </select></div>
-            <button class="btn secondary full" type="button" onclick="Bella.addPublicItem()" ${(!b.draftProfessionalId || !b.draftServiceId || !availableServices.length || !enabled) ? 'disabled' : ''}>Adicionar serviÃ§o</button>
+            <button class="btn secondary full" type="button" onclick="Bella.addPublicItem()" ${(!b.draftProfessionalId || !b.draftServiceId || !availableServices.length || !enabled) ? 'disabled' : ''}>Adicionar servi\u00e7o</button>
           </div>
         </section>
 
         <section class="step">
-          <div class="section"><h2>2. ServiÃ§os escolhidos</h2><small>${b.items.length} item(ns)</small></div>
+          <div class="section"><h2>2. Servi\u00e7os escolhidos</h2><small>${b.items.length} item(ns)</small></div>
           <div class="list">
-            ${b.items.length ? b.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'public')).join('') : `<div class="empty">Adicione um ou mais serviÃ§os para continuar.</div>`}
+            ${b.items.length ? b.items.map((item, index) => renderSelectedServiceItem(item, index, services, professionals, 'public')).join('') : `<div class="empty">Adicione um ou mais servi\u00e7os para continuar.</div>`}
           </div>
-          ${b.items.length ? `<div class="card-sub" style="margin-top:10px">Ordem automÃ¡tica: maquiagem e penteado ficam no final do atendimento.</div>` : ''}
+          ${b.items.length ? `<div class="card-sub" style="margin-top:10px">Ordem autom\u00e1tica: maquiagem e penteado ficam no final do atendimento.</div>` : ''}
         </section>
 
         <section class="step">
-          <div class="section"><h2>3. Data e horÃ¡rio de inÃ­cio</h2></div>
+          <div class="section"><h2>3. Data e hor\u00e1rio de in\u00edcio</h2></div>
           <div class="card">
             <div class="field"><label>Data</label><input type="date" min="${todayISO()}" value="${esc(b.date)}" onchange="Bella.setPublic('date', this.value)"></div>
-            <div class="slots">${slots.length ? slots.map(t => `<button class="slot ${b.time === t ? 'active' : ''}" onclick="Bella.setPublic('time','${t}')">${t}</button>`).join('') : `<button class="slot" disabled>Sem horÃ¡rios</button>`}</div>
-            <small>${b.items.length ? 'Este Ã© o horÃ¡rio em que vocÃª comeÃ§a. O BellaOS define a sequÃªncia dos serviÃ§os e encaixa cada profissional.' : 'Adicione serviÃ§os para ver horÃ¡rios.'}</small>
+            <div class="slots">${slots.length ? slots.map(t => `<button class="slot ${b.time === t ? 'active' : ''}" onclick="Bella.setPublic('time','${t}')">${t}</button>`).join('') : `<button class="slot" disabled>Sem hor\u00e1rios</button>`}</div>
+            <small>${b.items.length ? 'Este \u00e9 o hor\u00e1rio em que voc\u00ea come\u00e7a. O BellaOS define a sequ\u00eancia dos servi\u00e7os e encaixa cada profissional.' : 'Adicione servi\u00e7os para ver hor\u00e1rios.'}</small>
           </div>
         </section>
         <section class="step">
@@ -1431,12 +1586,12 @@
           <div class="card">
             <div class="field"><label>Nome</label><input value="${esc(b.clientName)}" oninput="Bella.setPublic('clientName', this.value)" placeholder="Seu nome" /></div>
             <div class="field"><label>WhatsApp</label><input value="${esc(b.clientPhone)}" oninput="Bella.setPublic('clientPhone', this.value)" inputmode="tel" placeholder="(27) 99999-9999" /></div>
-            <div class="field"><label>ObservaÃ§Ã£o</label><textarea oninput="Bella.setPublic('notes', this.value)" placeholder="Opcional">${esc(b.notes)}</textarea></div>
+            <div class="field"><label>Observa\u00e7\u00e3o</label><textarea oninput="Bella.setPublic('notes', this.value)" placeholder="Opcional">${esc(b.notes)}</textarea></div>
           </div>
         </section>
         <div class="summary-box">
           <strong>${b.items.length ? money(total) : 'Monte seu atendimento'}</strong>
-          <small>${b.items.length ? `${b.items.length} serviÃ§o(s) Â· duraÃ§Ã£o estimada ${duration} min` : 'O resumo aparecerÃ¡ aqui.'}</small>
+          <small>${b.items.length ? `${b.items.length} servi\u00e7o(s) \u00b7 dura\u00e7\u00e3o estimada ${duration} min` : 'O resumo aparecer\u00e1 aqui.'}</small>
         </div>
         <button class="btn brand full" style="margin-top:14px" onclick="Bella.confirmPublicBooking('${salon.id}')" ${!enabled ? 'disabled' : ''}>Confirmar agendamento</button>
       </main>
@@ -1545,8 +1700,8 @@
     return `<article class="item">
       <div class="avatar">${index + 1}</div>
       <div class="item-main">
-        <div class="item-title">${esc(service?.name || 'ServiÃ§o')}</div>
-        <div class="item-meta">${esc(pro?.name || 'Profissional')} Â· ${money(service?.price || 0)} Â· ${Number(service?.duration || 0)} min</div>
+        <div class="item-title">${esc(service?.name || 'Servi\u00e7o')}</div>
+        <div class="item-meta">${esc(pro?.name || 'Profissional')} \u00b7 ${money(service?.price || 0)} \u00b7 ${Number(service?.duration || 0)} min</div>
       </div>
       <button class="btn small secondary" type="button" onclick="${removeFn}">Remover</button>
     </article>`;
@@ -1580,8 +1735,8 @@
       const dur = Number(service?.duration || 0) + Number(service?.buffer ?? salon?.bufferMinutes ?? 0);
       const time = start ? `${minToTime(offset)} ` : '';
       offset += dur;
-      return `${time}${service?.name || 'ServiÃ§o'} com ${pro?.name || 'profissional'}`;
-    }).join(' Â· ');
+      return `${time}${service?.name || 'Servi\u00e7o'} com ${pro?.name || 'profissional'}`;
+    }).join(' \u00b7 ');
   }
 
   function permuteItems(list, limit = 720) {
@@ -1726,15 +1881,15 @@
     const active = salons.filter(s => s.status === 'ativo').length;
     app.innerHTML = `
       <main class="admin-shell">
-        <header class="section"><div><div class="eyebrow">Painel administrativo</div><h1 style="margin:.2em 0">BellaOS</h1><p class="card-sub">Gerencie salÃµes, planos, status, demonstraÃ§Ãµes e mÃ©tricas gerais.</p></div><button class="btn secondary" onclick="Bella.logout()">Sair</button></header>
+        <header class="section"><div><div class="eyebrow">Painel administrativo</div><h1 style="margin:.2em 0">BellaOS</h1><p class="card-sub">Gerencie sal\u00f5es, planos, status, demonstra\u00e7\u00f5es e m\u00e9tricas gerais.</p></div><button class="btn secondary" onclick="Bella.logout()">Sair</button></header>
         <div class="admin-grid">
-          <div class="admin-card"><div class="stat-label">SalÃµes ativos</div><div class="stat-number">${active}</div></div>
+          <div class="admin-card"><div class="stat-label">Sal\u00f5es ativos</div><div class="stat-number">${active}</div></div>
           <div class="admin-card"><div class="stat-label">Agendamentos</div><div class="stat-number">${totalAppointments}</div></div>
           <div class="admin-card"><div class="stat-label">Plano principal</div><div class="stat-number">Premium</div></div>
         </div>
-        <section class="section"><h2>SalÃµes cadastrados</h2><button class="btn small brand" onclick="Bella.openAdminCreateSalon()">Novo salÃ£o</button></section>
+        <section class="section"><h2>Sal\u00f5es cadastrados</h2><button class="btn small brand" onclick="Bella.openAdminCreateSalon()">Novo sal\u00e3o</button></section>
         <div class="list">
-          ${salons.map(s => `<article class="item"><div class="avatar">${initials(s.name)}</div><div class="item-main"><div class="item-title">${esc(s.name)} <span class="badge ${s.status === 'ativo' ? 'success' : 'danger'}">${esc(s.status)}</span></div><div class="item-meta">/${esc(s.slug)} Â· ${esc(s.plan)} Â· ${esc(s.whatsapp)}</div><div class="actions" style="margin-top:10px"><button class="btn small secondary" onclick="Bella.toggleSalonStatus('${s.id}')">${s.status === 'ativo' ? 'Bloquear' : 'Ativar'}</button><button class="btn small secondary" onclick="Bella.copyText('${bookingUrl(s.slug)}')">Copiar agenda</button></div></div></article>`).join('')}
+          ${salons.map(s => `<article class="item"><div class="avatar">${initials(s.name)}</div><div class="item-main"><div class="item-title">${esc(s.name)} <span class="badge ${s.status === 'ativo' ? 'success' : 'danger'}">${esc(s.status)}</span></div><div class="item-meta">/${esc(s.slug)} \u00b7 ${esc(s.plan)} \u00b7 ${esc(s.whatsapp)}</div><div class="actions" style="margin-top:10px"><button class="btn small secondary" onclick="Bella.toggleSalonStatus('${s.id}')">${s.status === 'ativo' ? 'Bloquear' : 'Ativar'}</button><button class="btn small secondary" onclick="Bella.copyText('${bookingUrl(s.slug)}')">Copiar agenda</button></div></div></article>`).join('')}
         </div>
       </main>
     `;
@@ -1747,9 +1902,11 @@
     const password = String(form.get('password'));
     const db = getDb();
     const user = db.users.find(u => u.email.toLowerCase() === email && u.password === password);
-    if (!user) return toast('E-mail ou senha invÃ¡lidos.');
+    if (!user) return toast('E-mail ou senha inv\u00e1lidos.');
     setSession(user.id);
-    toast(user.mustChangePassword ? 'Crie uma nova senha para continuar.' : 'Bem-vinda ao BellaOS.');
+    const salon = user.role === 'super_admin' ? null : db.salons.find(s => s.id === user.salonId);
+    const lock = subscriptionLockInfo(salon);
+    toast(lock.locked ? 'Assinatura vencida. Regularize para continuar.' : (user.mustChangePassword ? 'Crie uma nova senha para continuar.' : 'Bem-vinda ao BellaOS.'));
     render();
   }
 
@@ -1758,7 +1915,7 @@
     const form = new FormData(event.currentTarget);
     const password = String(form.get('password'));
     const confirm = String(form.get('confirm'));
-    if (password !== confirm) return toast('As senhas nÃ£o conferem.');
+    if (password !== confirm) return toast('As senhas n\u00e3o conferem.');
     const user = currentUser();
     const db = getDb();
     const dbUser = db.users.find(u => u.id === user.id);
@@ -1832,14 +1989,14 @@
     const data = new FormData(event.currentTarget);
     const draft = ensureAppointmentDraft(salon.id);
     const items = sanitizeServiceItems(salon.id, draft.items);
-    if (!items.length) return toast('Adicione pelo menos um serviÃ§o.');
+    if (!items.length) return toast('Adicione pelo menos um servi\u00e7o.');
     const date = String(data.get('date') || draft.date || '');
     const start = String(data.get('start') || draft.time || '');
-    if (!start) return toast('Selecione um horÃ¡rio disponÃ­vel.');
+    if (!start) return toast('Selecione um hor\u00e1rio dispon\u00edvel.');
     const availableSlots = getMultiAvailableSlots(salon.id, items, date);
-    if (!availableSlots.includes(start)) return toast('Este horÃ¡rio nÃ£o estÃ¡ disponÃ­vel ou jÃ¡ passou.');
+    if (!availableSlots.includes(start)) return toast('Este hor\u00e1rio n\u00e3o est\u00e1 dispon\u00edvel ou j\u00e1 passou.');
     const plan = buildServicePlanForStart(salon.id, items, date, timeToMin(start));
-    if (!plan) return toast('NÃ£o foi possÃ­vel encaixar todos os serviÃ§os nos horÃ¡rios das profissionais.');
+    if (!plan) return toast('N\u00e3o foi poss\u00edvel encaixar todos os servi\u00e7os nos hor\u00e1rios das profissionais.');
     const db = getDb();
     const { services, professionals } = salonData(salon.id);
     const clientId = String(data.get('clientId'));
@@ -1873,7 +2030,7 @@
     state.modal = null;
     state.selectedDate = date;
     state.appointmentDraft = { items: [], draftProfessionalId: '', draftServiceId: '', date: todayISO(), time: '' };
-    toast(items.length > 1 ? 'Atendimento com mÃºltiplos serviÃ§os criado.' : 'Agendamento criado.');
+    toast(items.length > 1 ? 'Atendimento com m\u00faltiplos servi\u00e7os criado.' : 'Agendamento criado.');
     render();
   }
 
@@ -1919,14 +2076,14 @@
       commissionType: String(data.get('commissionType')),
       commissionValue: Number(data.get('commissionValue') || 0)
     };
-    if (!payload.name || !payload.price || !payload.duration) return toast('Preencha nome, preÃ§o e duraÃ§Ã£o.');
+    if (!payload.name || !payload.price || !payload.duration) return toast('Preencha nome, pre\u00e7o e dura\u00e7\u00e3o.');
     const db = getDb();
     const existing = db.services.find(s => s.id === serviceId && s.salonId === salon.id);
     if (existing) Object.assign(existing, payload, { products: existing.products || [] });
     else db.services.push({ id: uid('srv'), ...payload, products: [] });
     saveDb(db);
     state.modal = null;
-    toast(existing ? 'ServiÃ§o atualizado.' : 'ServiÃ§o cadastrado.');
+    toast(existing ? 'Servi\u00e7o atualizado.' : 'Servi\u00e7o cadastrado.');
     render();
   }
 
@@ -1936,7 +2093,7 @@
     const salon = currentSalon();
     const data = new FormData(event.currentTarget);
     const services = data.getAll('services');
-    if (!services.length) return toast('Selecione pelo menos um serviÃ§o.');
+    if (!services.length) return toast('Selecione pelo menos um servi\u00e7o.');
     const weeklySchedule = scheduleFromForm(data);
     const scheduleError = validateWeeklySchedule(weeklySchedule);
     if (scheduleError) return toast(scheduleError);
@@ -1975,7 +2132,7 @@
     if (!client) return;
     const relatedAppointmentIds = db.appointments.filter(a => a.clientId === clientId).map(a => a.id);
     const message = relatedAppointmentIds.length
-      ? `Excluir ${client.name}? A ficha, histÃ³rico capilar e ${relatedAppointmentIds.length} agendamento(s) vinculados tambÃ©m serÃ£o removidos.`
+      ? `Excluir ${client.name}? A ficha, hist\u00f3rico capilar e ${relatedAppointmentIds.length} agendamento(s) vinculados tamb\u00e9m ser\u00e3o removidos.`
       : `Excluir ${client.name}?`;
     if (!confirm(message)) return;
     db.clients = db.clients.filter(c => c.id !== clientId);
@@ -1984,7 +2141,7 @@
     db.financial = db.financial.filter(f => !relatedAppointmentIds.includes(f.appointmentId));
     saveDb(db);
     state.modal = null;
-    toast('Cliente excluÃ­da.');
+    toast('Cliente exclu\u00edda.');
     render();
   }
 
@@ -1994,7 +2151,7 @@
     const salon = currentSalon();
     const service = db.services.find(s => s.id === serviceId && s.salonId === salon?.id);
     if (!service) return;
-    if (!confirm(`Excluir o serviÃ§o "${service.name}"? Ele serÃ¡ removido das profissionais e dos agendamentos vinculados.`)) return;
+    if (!confirm(`Excluir o servi\u00e7o "${service.name}"? Ele ser\u00e1 removido das profissionais e dos agendamentos vinculados.`)) return;
     db.services = db.services.filter(s => s.id !== serviceId);
     db.professionals.forEach(p => { p.services = (p.services || []).filter(id => id !== serviceId); });
     const appointmentsToRemove = [];
@@ -2016,7 +2173,7 @@
     }
     saveDb(db);
     state.modal = null;
-    toast('ServiÃ§o excluÃ­do.');
+    toast('Servi\u00e7o exclu\u00eddo.');
     render();
   }
 
@@ -2027,7 +2184,7 @@
     if (!pro) return;
     const related = db.appointments.filter(a => a.professionalId === professionalId).length;
     const message = related
-      ? `Excluir ${pro.name}? Os agendamentos antigos serÃ£o mantidos, mas ficarÃ£o sem profissional definida.`
+      ? `Excluir ${pro.name}? Os agendamentos antigos ser\u00e3o mantidos, mas ficar\u00e3o sem profissional definida.`
       : `Excluir ${pro.name}?`;
     if (!confirm(message)) return;
     db.professionals = db.professionals.filter(p => p.id !== professionalId);
@@ -2036,7 +2193,7 @@
     db.hairHistory.forEach(h => { if (h.professionalId === professionalId) h.professionalId = ''; });
     saveDb(db);
     state.modal = null;
-    toast('Profissional excluÃ­da.');
+    toast('Profissional exclu\u00edda.');
     render();
   }
 
@@ -2049,7 +2206,7 @@
     db.financial.push({ id: uid('fin'), salonId: salon.id, type: String(data.get('type')), date: String(data.get('date')), description: String(data.get('description')), amount: Number(data.get('amount')), payment: String(data.get('payment')) });
     saveDb(db);
     state.modal = null;
-    toast('LanÃ§amento salvo.');
+    toast('Lan\u00e7amento salvo.');
     render();
   }
 
@@ -2088,7 +2245,7 @@
     const salon = db.salons.find(s => s.id === user.salonId);
     const newSlug = slugify(data.get('slug'));
     const slugTaken = db.salons.some(s => s.id !== salon.id && s.slug === newSlug);
-    if (slugTaken) return toast('Este slug jÃ¡ estÃ¡ em uso.');
+    if (slugTaken) return toast('Este slug j\u00e1 est\u00e1 em uso.');
     Object.assign(salon, {
       name: String(data.get('name')),
       slug: newSlug,
@@ -2103,7 +2260,7 @@
       infinitePayHandle: String(data.get('infinitePayHandle') || '').replace(/^\$/, '').trim()
     });
     saveDb(db);
-    toast('ConfiguraÃ§Ãµes salvas.');
+    toast('Configura\u00e7\u00f5es salvas.');
     render();
   }
 
@@ -2115,7 +2272,7 @@
   function shareBookingLink() {
     const salon = currentSalon();
     const link = bookingUrl(salon.slug);
-    window.open(`https://wa.me/?text=${encodeURIComponent(`Agende seu horÃ¡rio no ${salon.name}: ${link}`)}`, '_blank');
+    window.open(`https://wa.me/?text=${encodeURIComponent(`Agende seu hor\u00e1rio no ${salon.name}: ${link}`)}`, '_blank');
   }
   function copyText(text) {
     if (navigator.clipboard) navigator.clipboard.writeText(text).catch(() => {});
@@ -2146,9 +2303,9 @@
     const salon = salonBySlug(location.pathname.split('/agenda/')[1] || '') || currentSalon();
     if (!salon) return;
     const b = ensurePublicBookingState(salon.id);
-    if (!b.draftProfessionalId || !b.draftServiceId) return toast('Escolha profissional e serviÃ§o.');
+    if (!b.draftProfessionalId || !b.draftServiceId) return toast('Escolha profissional e servi\u00e7o.');
     const valid = getProfessionalsForService(salon.id, b.draftServiceId).some(p => p.id === b.draftProfessionalId);
-    if (!valid) return toast('Esta profissional nÃ£o realiza este serviÃ§o.');
+    if (!valid) return toast('Esta profissional n\u00e3o realiza este servi\u00e7o.');
     b.items.push({ id: uid('bi'), professionalId: b.draftProfessionalId, serviceId: b.draftServiceId });
     b.items = orderServiceItems(salon.id, b.items);
     b.time = '';
@@ -2185,9 +2342,9 @@
     const salon = currentSalon();
     if (!salon) return;
     const d = ensureAppointmentDraft(salon.id);
-    if (!d.draftProfessionalId || !d.draftServiceId) return toast('Escolha profissional e serviÃ§o.');
+    if (!d.draftProfessionalId || !d.draftServiceId) return toast('Escolha profissional e servi\u00e7o.');
     const valid = getProfessionalsForService(salon.id, d.draftServiceId).some(p => p.id === d.draftProfessionalId);
-    if (!valid) return toast('Esta profissional nÃ£o realiza este serviÃ§o.');
+    if (!valid) return toast('Esta profissional n\u00e3o realiza este servi\u00e7o.');
     d.items.push({ id: uid('ai'), professionalId: d.draftProfessionalId, serviceId: d.draftServiceId });
     d.items = orderServiceItems(salon.id, d.items);
     d.time = '';
@@ -2239,14 +2396,14 @@
     const { salon, services, professionals } = salonData(salonId);
     const b = ensurePublicBookingState(salonId);
     const items = sanitizeServiceItems(salonId, b.items);
-    if (!items.length) return toast('Adicione pelo menos um serviÃ§o.');
-    if (!b.date || !b.time) return toast('Escolha uma data e horÃ¡rio.');
+    if (!items.length) return toast('Adicione pelo menos um servi\u00e7o.');
+    if (!b.date || !b.time) return toast('Escolha uma data e hor\u00e1rio.');
     if (b.date < todayISO()) return toast('Escolha uma data atual ou futura.');
-    if (!b.clientName.trim() || normalizePhone(b.clientPhone).length < 10) return toast('Informe nome e WhatsApp vÃ¡lidos.');
+    if (!b.clientName.trim() || normalizePhone(b.clientPhone).length < 10) return toast('Informe nome e WhatsApp v\u00e1lidos.');
     const slots = getMultiAvailableSlots(salonId, items, b.date);
-    if (!slots.includes(b.time)) return toast('Este horÃ¡rio nÃ£o estÃ¡ mais disponÃ­vel.');
+    if (!slots.includes(b.time)) return toast('Este hor\u00e1rio n\u00e3o est\u00e1 mais dispon\u00edvel.');
     const plan = buildServicePlanForStart(salonId, items, b.date, timeToMin(b.time));
-    if (!plan) return toast('NÃ£o foi possÃ­vel encaixar todos os serviÃ§os nos horÃ¡rios das profissionais.');
+    if (!plan) return toast('N\u00e3o foi poss\u00edvel encaixar todos os servi\u00e7os nos hor\u00e1rios das profissionais.');
     const db = getDb();
     let client = db.clients.find(c => c.salonId === salonId && normalizePhone(c.phone) === normalizePhone(b.clientPhone));
     if (!client) {
@@ -2272,18 +2429,18 @@
         status: 'agendado',
         total: Number(service?.price || 0),
         duration: segment.duration,
-        notes: `${b.notes || 'Agendado pela cliente no link pÃºblico.'}${plan.items.length > 1 ? '\nAtendimento combinado: ' + summary : ''}`,
+        notes: `${b.notes || 'Agendado pela cliente no link p\u00fablico.'}${plan.items.length > 1 ? '\nAtendimento combinado: ' + summary : ''}`,
         createdBy: 'public',
         createdAt: new Date().toISOString()
       });
     });
     saveDb(db);
-    const msg = `OlÃ¡, ${client.name}! Seu horÃ¡rio no ${salon.name} foi solicitado para ${brDate(b.date)}. ServiÃ§os: ${summary}. Valor total: ${money(multiServiceTotal(plan.items, services))}.`;
+    const msg = `Ol\u00e1, ${client.name}! Seu hor\u00e1rio no ${salon.name} foi solicitado para ${brDate(b.date)}. Servi\u00e7os: ${summary}. Valor total: ${money(multiServiceTotal(plan.items, services))}.`;
     state.publicBooking = { items: [], draftProfessionalId: '', draftServiceId: '', date: todayISO(), time: '', clientName: '', clientPhone: '', notes: '' };
     render();
     setTimeout(() => {
       toast('Agendamento confirmado.');
-      const open = confirm('Agendamento confirmado! Deseja enviar a confirmaÃ§Ã£o pelo WhatsApp?');
+      const open = confirm('Agendamento confirmado! Deseja enviar a confirma\u00e7\u00e3o pelo WhatsApp?');
       if (open) window.open(`https://wa.me/55${normalizePhone(client.phone)}?text=${encodeURIComponent(msg)}`, '_blank');
     }, 120);
   }
@@ -2293,23 +2450,73 @@
     event?.preventDefault?.();
     const form = event?.target;
     const formData = form ? Object.fromEntries(new FormData(form).entries()) : {};
+    const plan = getPlan(formData.planId || 'mensal');
     const handle = String(DEFAULT_INFINITEPAY_HANDLE || '').replace(/^\$/, '').trim();
     if (!handle) {
       toast('Configure a InfiniteTag no arquivo app.js ou pelo configurar_bellaos.bat.');
       return;
     }
-    const salonName = String(formData.salonName || 'Novo salÃ£o BellaOS').trim();
-    const customerName = String(formData.name || salonName).trim();
-    const customerEmail = String(formData.email || '').trim();
-    const customerPhone = normalizePhone(formData.phone || '');
-    const orderNsu = `bellaos-assinatura-${Date.now()}`;
+
+    const adminName = String(formData.adminName || '').trim();
+    const adminCpf = String(formData.adminCpf || '').replace(/\D/g, '');
+    const adminBirthDate = String(formData.adminBirthDate || '').trim();
+    const adminPhone = normalizePhone(formData.adminPhone || '');
+    const adminEmail = String(formData.adminEmail || '').trim();
+
+    const salonName = String(formData.salonName || 'Novo sal\u00e3o BellaOS').trim();
+    const salonCnpj = String(formData.salonCnpj || '').replace(/\D/g, '');
+    const salonPhone = normalizePhone(formData.salonPhone || '');
+
+    if (!adminName || !adminCpf || !adminBirthDate || !adminPhone || !adminEmail || !salonName || !salonPhone) {
+      toast('Preencha todos os campos obrigat\u00f3rios.');
+      return;
+    }
+
+    const orderNsu = `bellaos-${plan.id}-${Date.now()}`;
     const payload = {
       handle,
       order_nsu: orderNsu,
-      salon: { name: salonName, slug: slugify(salonName) || 'novo-salao' },
-      customer: { name: customerName, email: customerEmail, phone_number: customerPhone ? `+55${customerPhone}` : undefined },
-      plan: { name: BELLAOS_PLAN_NAME, price: BELLAOS_PLAN_PRICE_CENTS }
+      salon: {
+        name: salonName,
+        slug: slugify(salonName) || 'novo-salao',
+        phone_number: salonPhone ? `+55${salonPhone}` : undefined,
+        cnpj: salonCnpj || undefined
+      },
+      customer: {
+        name: adminName,
+        email: adminEmail,
+        phone_number: adminPhone ? `+55${adminPhone}` : undefined
+      },
+      metadata: {
+        recurrence: true,
+        plan_id: plan.id,
+        plan_name: plan.name,
+        cycle_months: plan.cycleMonths,
+        installments: plan.installments,
+        installment_cents: plan.installmentCents,
+        amount_cents: plan.amountCents,
+        next_due_date: addMonthsISOFrom(todayISO(), plan.cycleMonths),
+        grace_until: addDaysToISO(addMonthsISOFrom(todayISO(), plan.cycleMonths), 3),
+        admin_name: adminName,
+        admin_cpf: adminCpf,
+        admin_birth_date: adminBirthDate,
+        admin_phone: adminPhone,
+        admin_email: adminEmail,
+        salon_name: salonName,
+        salon_cnpj: salonCnpj,
+        salon_phone: salonPhone
+      },
+      plan: {
+        id: plan.id,
+        name: `${BELLAOS_PLAN_NAME} - ${plan.name}`,
+        price: plan.amountCents,
+        display: plan.displayText,
+        recurrence: true,
+        cycle_months: plan.cycleMonths,
+        installments: plan.installments
+      }
     };
+
     try {
       toast('Gerando link de pagamento...');
       const response = await fetch('/api/infinitepay-checkout', {
@@ -2318,16 +2525,27 @@
         body: JSON.stringify(payload)
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.url) throw new Error(result.error || 'NÃ£o foi possÃ­vel gerar o checkout.');
+      if (!response.ok || !result.url) throw new Error(result.error || 'N\u00e3o foi poss\u00edvel gerar o checkout.');
+
       localStorage.setItem('bellaos.last_public_checkout', JSON.stringify({
         orderNsu,
+        planId: plan.id,
+        planName: plan.name,
+        cycleMonths: plan.cycleMonths,
+        nextDueDate: addMonthsISOFrom(todayISO(), plan.cycleMonths),
+        graceUntil: addDaysToISO(addMonthsISOFrom(todayISO(), plan.cycleMonths), 3),
+        adminName,
+        adminCpf,
+        adminBirthDate,
+        adminPhone,
+        adminEmail,
         salonName,
-        customerName,
-        customerEmail,
-        customerPhone,
+        salonCnpj,
+        salonPhone,
         checkoutUrl: result.url,
         createdAt: new Date().toISOString()
       }));
+
       window.open(result.url, '_blank');
       toast('Checkout aberto em uma nova aba.');
     } catch (error) {
@@ -2336,18 +2554,39 @@
     }
   }
 
-  async function startSubscriptionPayment() {
+  async function startSubscriptionPayment(planId = 'mensal') {
     const user = currentUser();
     const salon = currentSalon();
     if (!user || !salon) return;
-    if (!salon.infinitePayHandle) return toast('Cadastre sua InfiniteTag em ConfiguraÃ§Ãµes.');
-    const orderNsu = `bellaos-${salon.slug}-${Date.now()}`;
+    const handle = salon.infinitePayHandle || DEFAULT_INFINITEPAY_HANDLE || '';
+    if (!handle) return toast('Cadastre sua InfiniteTag em Configura\u00e7\u00f5es.');
+    const plan = getPlan(planId || salon.subscriptionPlanId || 'mensal');
+    const orderNsu = `bellaos-${salon.slug}-${plan.id}-${Date.now()}`;
     const payload = {
-      handle: salon.infinitePayHandle,
+      handle,
       order_nsu: orderNsu,
       salon: { id: salon.id, name: salon.name, slug: salon.slug },
       customer: { name: user.name, email: user.email, phone_number: `+55${normalizePhone(salon.whatsapp || '')}` },
-      plan: { name: BELLAOS_PLAN_NAME, price: BELLAOS_PLAN_PRICE_CENTS }
+      metadata: {
+        recurrence: true,
+        plan_id: plan.id,
+        plan_name: plan.name,
+        cycle_months: plan.cycleMonths,
+        installments: plan.installments,
+        installment_cents: plan.installmentCents,
+        amount_cents: plan.amountCents,
+        next_due_date: addMonthsISOFrom(todayISO(), plan.cycleMonths),
+        grace_until: addDaysToISO(addMonthsISOFrom(todayISO(), plan.cycleMonths), 3)
+      },
+      plan: {
+        id: plan.id,
+        name: `${BELLAOS_PLAN_NAME} - ${plan.name}`,
+        price: plan.amountCents,
+        display: plan.displayText,
+        recurrence: true,
+        cycle_months: plan.cycleMonths,
+        installments: plan.installments
+      }
     };
     try {
       toast('Gerando link de pagamento...');
@@ -2357,16 +2596,25 @@
         body: JSON.stringify(payload)
       });
       const result = await response.json().catch(() => ({}));
-      if (!response.ok || !result.url) throw new Error(result.error || 'NÃ£o foi possÃ­vel gerar o checkout.');
+      if (!response.ok || !result.url) throw new Error(result.error || 'N\u00e3o foi poss\u00edvel gerar o checkout.');
       const db = getDb();
       const target = db.salons.find(s => s.id === salon.id);
       if (target) {
         target.subscriptionStatus = 'pendente';
+        target.subscriptionPlanId = plan.id;
+        target.subscriptionPlanName = plan.name;
+        target.subscriptionPrice = plan.amountCents / 100;
+        target.subscriptionCycleMonths = plan.cycleMonths;
+        target.subscriptionInstallments = plan.installments;
+        target.subscriptionInstallmentCents = plan.installmentCents;
         target.subscriptionOrderNsu = orderNsu;
         target.subscriptionCheckoutUrl = result.url;
+        target.subscriptionNextDuePreview = addMonthsISOFrom(todayISO(), plan.cycleMonths);
+        target.subscriptionGracePreview = addDaysToISO(target.subscriptionNextDuePreview, 3);
         target.subscriptionUpdatedAt = new Date().toISOString();
         saveDb(db);
       }
+      localStorage.setItem('bellaos.last_internal_checkout', JSON.stringify({ orderNsu, salonId: salon.id, planId: plan.id, createdAt: new Date().toISOString() }));
       window.open(result.url, '_blank');
       toast('Link de pagamento aberto.');
       render();
@@ -2404,46 +2652,46 @@
     if (item.date < todayISO()) return toast('Escolha uma data atual ou futura.');
     if (item.scope === 'professional' && !item.professionalId) return toast('Escolha uma profissional.');
     if (!item.closed) {
-      if (timeToMin(item.start) >= timeToMin(item.end)) return toast('O horÃ¡rio de abertura precisa ser antes do fechamento.');
+      if (timeToMin(item.start) >= timeToMin(item.end)) return toast('O hor\u00e1rio de abertura precisa ser antes do fechamento.');
       if (item.breakStart && item.breakEnd) {
-        if (timeToMin(item.breakStart) >= timeToMin(item.breakEnd)) return toast('Revise o horÃ¡rio do intervalo.');
-        if (timeToMin(item.breakStart) < timeToMin(item.start) || timeToMin(item.breakEnd) > timeToMin(item.end)) return toast('O intervalo precisa ficar dentro do horÃ¡rio de funcionamento.');
+        if (timeToMin(item.breakStart) >= timeToMin(item.breakEnd)) return toast('Revise o hor\u00e1rio do intervalo.');
+        if (timeToMin(item.breakStart) < timeToMin(item.start) || timeToMin(item.breakEnd) > timeToMin(item.end)) return toast('O intervalo precisa ficar dentro do hor\u00e1rio de funcionamento.');
       }
     }
     const db = getDb();
     db.scheduleExceptions = db.scheduleExceptions || [];
     const duplicate = db.scheduleExceptions.find(x => x.id !== item.id && x.salonId === item.salonId && x.date === item.date && x.scope === item.scope && (item.scope === 'salon' || x.professionalId === item.professionalId));
-    if (duplicate) return toast('JÃ¡ existe uma exceÃ§Ã£o para essa data e escopo. Edite a existente.');
+    if (duplicate) return toast('J\u00e1 existe uma exce\u00e7\u00e3o para essa data e escopo. Edite a existente.');
     const idx = db.scheduleExceptions.findIndex(x => x.id === item.id);
     if (idx >= 0) db.scheduleExceptions[idx] = item;
     else db.scheduleExceptions.push(item);
     saveDb(db);
     state.modal = null;
-    toast('ExceÃ§Ã£o de agenda salva.');
+    toast('Exce\u00e7\u00e3o de agenda salva.');
     render();
   }
 
   function deleteScheduleException(exceptionId) {
-    if (!canEdit() || !confirm('Excluir esta exceÃ§Ã£o de agenda?')) return;
+    if (!canEdit() || !confirm('Excluir esta exce\u00e7\u00e3o de agenda?')) return;
     const db = getDb();
     db.scheduleExceptions = (db.scheduleExceptions || []).filter(x => x.id !== exceptionId);
     saveDb(db);
     state.modal = null;
-    toast('ExceÃ§Ã£o excluÃ­da.');
+    toast('Exce\u00e7\u00e3o exclu\u00edda.');
     render();
   }
 
   function addHairHistoryPrompt(clientId) {
     if (!canEdit()) return;
-    const service = prompt('ServiÃ§o realizado:', 'ColoraÃ§Ã£o');
+    const service = prompt('Servi\u00e7o realizado:', 'Colora\u00e7\u00e3o');
     if (!service) return;
-    const formula = prompt('FÃ³rmula usada:', '7.1 + OX 20 volumes') || '';
-    const notes = prompt('ObservaÃ§Ãµes:', '') || '';
+    const formula = prompt('F\u00f3rmula usada:', '7.1 + OX 20 volumes') || '';
+    const notes = prompt('Observa\u00e7\u00f5es:', '') || '';
     const salon = currentSalon();
     const db = getDb();
     db.hairHistory.push({ id: uid('hist'), salonId: salon.id, clientId, date: todayISO(), service, formula, products: '', professionalId: '', notes });
     saveDb(db);
-    toast('HistÃ³rico capilar adicionado.');
+    toast('Hist\u00f3rico capilar adicionado.');
     render();
   }
 
@@ -2454,25 +2702,25 @@
     const salon = db.salons.find(s => s.id === salonId);
     salon.status = salon.status === 'ativo' ? 'bloqueado' : 'ativo';
     saveDb(db);
-    toast(`SalÃ£o ${salon.status}.`);
+    toast(`Sal\u00e3o ${salon.status}.`);
     render();
   }
 
   function openAdminCreateSalon() {
     const user = currentUser();
     if (!user || user.role !== 'super_admin') return;
-    const name = prompt('Nome do salÃ£o:');
+    const name = prompt('Nome do sal\u00e3o:');
     if (!name) return;
-    const email = prompt('E-mail do usuÃ¡rio principal:');
+    const email = prompt('E-mail do usu\u00e1rio principal:');
     if (!email) return;
     const db = getDb();
     const salonId = uid('salon');
     const slug = slugify(name);
     db.salons.push({ id: salonId, name, slug, logoUrl: '/assets/logo-mark.svg', whatsapp: '', address: '', openingStart: '09:00', openingEnd: '19:00', minAdvanceMinutes: 120, bufferMinutes: 10, allowSameDay: true, allowAnyProfessional: true, showPrices: true, bookingEnabled: true, color: '#C89B7B', status: 'ativo', plan: 'BellaOS Completo', subscriptionStatus: 'teste', subscriptionPrice: 69.90, infinitePayHandle: '', createdAt: new Date().toISOString() });
-    db.users.push({ id: uid('u'), salonId, name: 'UsuÃ¡ria Principal', email, password: 'bella123', role: 'owner', mustChangePassword: true, isDemo: false });
-    db.categories.push(...['Cabelo','Unhas','Sobrancelhas','Maquiagem','Penteados','Noivas','EstÃ©tica','Pacotes'].map(n => ({ id: uid('cat'), salonId, name: n })));
+    db.users.push({ id: uid('u'), salonId, name: 'Usu\u00e1ria Principal', email, password: 'bella123', role: 'owner', mustChangePassword: true, isDemo: false });
+    db.categories.push(...['Cabelo','Unhas','Sobrancelhas','Maquiagem','Penteados','Noivas','Est\u00e9tica','Pacotes'].map(n => ({ id: uid('cat'), salonId, name: n })));
     saveDb(db);
-    toast('SalÃ£o criado com senha temporÃ¡ria bella123.');
+    toast('Sal\u00e3o criado com senha tempor\u00e1ria bella123.');
     render();
   }
 
@@ -2488,4 +2736,3 @@
   startRemoteSync();
   render();
 })();
-

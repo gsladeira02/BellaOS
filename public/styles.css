@@ -342,3 +342,124 @@ button, .card, .item, .slot, .chip { -webkit-tap-highlight-color: transparent; }
     font-size: 36px;
   }
 }
+
+
+/* Ajustes de fonte e formulário de cadastro */
+html, body, input, button, select, textarea {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.signup-section-title {
+  margin: 16px 0 2px;
+  color: var(--brand-dark);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: .35px;
+  text-transform: uppercase;
+}
+
+.field label small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.auth-pricing-card {
+  padding: 20px;
+}
+
+.auth-feature-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.auth-feature-list span {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.15;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  padding: 10px 8px;
+}
+
+.auth-price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.field input {
+  font-size: 15px;
+}
+
+@media (min-width: 861px) {
+  .auth-feature-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+
+/* Planos e recorrência */
+.plan-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0;
+}
+
+.plan-option {
+  position: relative;
+  border: 1px solid var(--line);
+  background: rgba(255,255,255,.84);
+  border-radius: 18px;
+  padding: 13px 12px;
+  display: grid;
+  gap: 4px;
+  cursor: pointer;
+  transition: border .15s ease, box-shadow .15s ease, transform .15s ease;
+}
+
+.plan-option:has(input:checked),
+.plan-option.selected {
+  border-color: rgba(200,155,123,.75);
+  box-shadow: 0 0 0 4px rgba(200,155,123,.13);
+}
+
+.plan-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.plan-option-name {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 950;
+  letter-spacing: .35px;
+  text-transform: uppercase;
+}
+
+.plan-option strong {
+  font-size: 18px;
+  line-height: 1.05;
+  color: var(--brand-dark);
+  letter-spacing: -.4px;
+}
+
+.plan-option small {
+  color: var(--muted);
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+@media (max-width: 520px) {
+  .plan-options {
+    grid-template-columns: 1fr;
+  }
+}

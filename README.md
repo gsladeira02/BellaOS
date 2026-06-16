@@ -166,3 +166,45 @@ public/app.js
 ```
 
 Então execute o `.bat` dentro da pasta que contém `public`, `api` e `vercel.json`.
+
+
+## Atualização do cadastro inicial
+
+A tela de assinatura agora pede:
+
+- Nome completo do administrador
+- CPF
+- Data de nascimento
+- Celular do administrador
+- E-mail do administrador
+- Nome do salão
+- CNPJ do salão, opcional
+- Celular do salão
+
+Também foi corrigido o problema de acentuação/fonte no `public/app.js`.  
+O arquivo foi salvo em ASCII com escapes Unicode para evitar textos como `salÃ£o`, `mÃªs` e `ServiÃ§os`.
+
+
+## Atualização dos planos e recorrência
+
+Planos configurados:
+
+- Mensal: R$ 69,90
+- Trimestral: 3x de R$ 64,90
+- Semestral: 6x de R$ 59,90
+- Anual: 12x de R$ 39,90
+
+A recorrência é salva no pedido e no salão:
+
+- Mensal: próximo vencimento em 1 mês
+- Trimestral: próximo vencimento em 3 meses
+- Semestral: próximo vencimento em 6 meses
+- Anual: próximo vencimento em 12 meses
+
+Regra de acesso:
+
+- O login continua liberado até 3 dias após o vencimento.
+- Após esse prazo, se a assinatura não estiver ativa/paga, o sistema mostra a tela de regularização e bloqueia o painel.
+- A regularização gera novo checkout InfinitePay do plano escolhido.
+
+Observação: a confirmação automática definitiva depende do webhook da InfinitePay atualizar o status de pagamento no backend. Esta versão já prepara metadados, vencimento e tolerância no fluxo de checkout.
