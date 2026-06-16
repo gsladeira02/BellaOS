@@ -1,4 +1,4 @@
-﻿(() => {
+(() => {
   const DB_KEY = 'bellaos.db.v1';
   const SESSION_KEY = 'bellaos.session.v1';
   const PUBLIC_BASE_URL = 'https://bella-os.vercel.app';
@@ -2736,4 +2736,3 @@
   startRemoteSync();
   render();
 })();
-

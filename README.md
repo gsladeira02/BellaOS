@@ -208,3 +208,18 @@ Regra de acesso:
 - A regularização gera novo checkout InfinitePay do plano escolhido.
 
 Observação: a confirmação automática definitiva depende do webhook da InfinitePay atualizar o status de pagamento no backend. Esta versão já prepara metadados, vencimento e tolerância no fluxo de checkout.
+
+
+## InfinitePay
+
+InfiniteTag configurada nesta versão:
+
+```txt
+sistemasos
+```
+
+Arquivo alterado:
+
+```txt
+public/app.js
+```
