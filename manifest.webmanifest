@@ -1,0 +1,11 @@
+{
+  "name": "BellaOS",
+  "short_name": "BellaOS",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FAF7F2",
+  "theme_color": "#C89B7B",
+  "icons": [
+    { "src": "/assets/logo-mark.svg", "sizes": "160x160", "type": "image/svg+xml" }
+  ]
+}
