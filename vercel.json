@@ -1,0 +1,21 @@
+{
+  "outputDirectory": "public",
+  "rewrites": [
+    {
+      "source": "/agenda/:slug",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/admin",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/assinatura",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/pagamento-concluido",
+      "destination": "/index.html"
+    }
+  ]
+}

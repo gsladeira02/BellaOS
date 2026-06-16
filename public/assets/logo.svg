@@ -1,0 +1,18 @@
+<svg width="720" height="220" viewBox="0 0 720 220" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="720" height="220" rx="42" fill="#FAF7F2"/>
+  <g transform="translate(48 30) scale(.95)">
+    <rect width="160" height="160" rx="42" fill="#FAF7F2"/>
+    <circle cx="80" cy="80" r="61" stroke="#C89B7B" stroke-width="6"/>
+    <path d="M91.7 31.5C84.1 42.7 82.6 54.1 88.8 64.9C94.5 74.7 102.4 79.6 111.7 84.8C101.6 90.4 92 90.7 82.8 86.1C72.4 80.9 66.7 71.1 66.6 59.1C66.5 48.3 73.4 38.6 91.7 31.5Z" fill="#2B2523"/>
+    <path d="M54.5 126.2C62.5 91.8 74.2 65.8 96.4 35.6" stroke="#C89B7B" stroke-width="13" stroke-linecap="round"/>
+    <path d="M37.3 121.9C47.2 92.2 61.7 67 87 37.4" stroke="#E7C8B6" stroke-width="9" stroke-linecap="round"/>
+    <path d="M73.3 126.2C80.4 98.4 88.9 79.2 108.7 55.7" stroke="#C89B7B" stroke-width="9" stroke-linecap="round" opacity="0.9"/>
+    <path d="M112.7 73.2C108.5 73.8 103.9 73.2 99.7 71.3" stroke="#2B2523" stroke-width="4" stroke-linecap="round" opacity="0.62"/>
+    <path d="M41 39.5L46.3 50.2L57 55.5L46.3 60.8L41 71.5L35.7 60.8L25 55.5L35.7 50.2L41 39.5Z" fill="#C89B7B"/>
+  </g>
+  <text x="225" y="111" fill="#2B2523" font-family="Georgia, 'Times New Roman', serif" font-size="74" font-weight="500" letter-spacing="-3">Bella</text>
+  <text x="430" y="111" fill="#C89B7B" font-family="Georgia, 'Times New Roman', serif" font-size="74" font-weight="500" letter-spacing="-3">OS</text>
+  <text x="229" y="149" fill="#8A7F78" font-family="Inter, Avenir, Helvetica, Arial, sans-serif" font-size="22" font-weight="500">Gestão premium para salões de beleza</text>
+  <path d="M230 168H520" stroke="#C89B7B" stroke-width="4" stroke-linecap="round"/>
+  <path d="M550 151L557 165L571 172L557 179L550 193L543 179L529 172L543 165L550 151Z" fill="#C89B7B" opacity=".75"/>
+</svg>
